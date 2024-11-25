@@ -2,8 +2,12 @@
 
 [2] The **openAI_pytorch_drl_algo-master** contains the implementation of several other learning algorithms.
 
-Currently working on embedding the _DDPG algorithm_ from and _TD3 algorithm_ from [2] into repo [1].
- 
+[3] https://github.com/LxzGordon/Deep-Reinforcement-Learning-with-pytorch/blob/master/algorithm/policy%20gradient/DDPG_discrete/main.py
+
+Currently working on embedding the _DDPG algorithm_ from [3] and _TD3 algorithm_ from [2] into repo [1].
+
+_Relevent Future Work on:_
+
 # [Enhancing Deep Reinforcement Learning: A Tutorial on Generative Diffusion Models in Network Optimization](https://hongyangdu.github.io/GDMOPT/)
 
 Generative Diffusion Models (GDMs) have emerged as a transformative force in the realm of Generative Artificial Intelligence (GAI), demonstrating their versatility and efficacy across a variety of applications. The ability to model complex data distributions and generate high-quality samples has made GDMs particularly effective in tasks such as image generation and reinforcement learning. Furthermore, their iterative nature, which involves a series of noise addition and denoising steps, is a powerful and unique approach to learning and generating data.
