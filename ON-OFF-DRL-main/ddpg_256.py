@@ -26,35 +26,30 @@ class replay_memory():
         self.memory_size=replay_memory_size
         self.memory=np.array([])
         self.cur=0
-        self.new=0
-    def size(self):
-        return self.memory.shape[0]
+        self.length= 0
 #[s,a,r,s_,done] make sure all info are lists, i.e. [[[1,2],[3]],[1],[0],[[4,5],[6]],[True]]
     def store(self, trans):
         trans = [np.array(item) for item in trans]
 
-        if self.size() < self.memory_size:
-            if self.new == 0:
+        if len(trans) != 5:  # Ensure all five elements are present
+            raise ValueError("Invalid transition: expected 5 elements, got {}".format(len(trans)))
+
+        if self.length < self.memory_size:
+            if self.length == 0:
                 # Initialize memory with dtype=object
                 self.memory = np.empty(self.memory_size, dtype=object)
-                self.memory[0] = trans
-                self.new = 1
-            else:
-                self.memory[self.size()] = trans
         else:
             # Overwrite oldest data in circular buffer
-            self.memory[self.cur] = trans
-            self.cur = (self.cur + 1) % self.memory_size
-        printable = [self.memory[i] for i in range(self.cur)]
-        print(printable)
+            self.length = self.length % self.memory_size
+        self.memory[self.length] = trans
+        self.length += 1
 
     def sample(self, batch_size):
-        if self.size() < batch_size:
+        if self.length < batch_size:
             return -1
-        indices = np.random.choice(self.size(), batch_size, replace=False)
+        indices = np.random.choice(self.length, batch_size, replace=False)
         return np.array([self.memory[i] for i in indices], dtype=object)
 
-    
 class Actor(nn.Module):
     def __init__(self,state_dim,act_dim):
         super(Actor,self).__init__()
@@ -83,15 +78,18 @@ class Critic(nn.Module):
         x=self.fc3(x)
         return x
 
-def gumbel_sample(shape,eps=1e-10):
-    seed=torch.FloatTensor(shape).uniform_().to(device)
-    return -torch.log(-torch.log(seed+eps)+eps)
-
 def gumbel_softmax_sample(logits,temperature=1.0):
     #print(logits)
-    logits=logits+gumbel_sample(logits.shape,1e-10)
+    seed=torch.FloatTensor(logits.shape).uniform_().to(device)
+    logits=logits-torch.log(-torch.log(seed+eps)+eps) # gumbel sampling
     #print(logits)
     return (torch.nn.functional.softmax(logits/temperature,dim=1))
+
+def onehot_action(prob):
+    y=torch.zeros_like(prob).to(device)
+    index=torch.argmax(prob,dim=1).unsqueeze(1)
+    y=y.scatter(1,index,1)
+    return y.to(torch.long)
 
 def gumbel_softmax(prob,temperature=1.0,hard=False):
     #print(prob)
@@ -102,17 +100,11 @@ def gumbel_softmax(prob,temperature=1.0,hard=False):
         y=(y_onehot-y).detach()+y
     return y
 
-def onehot_action(prob):
-    y=torch.zeros_like(prob).to(device)
-    index=torch.argmax(prob,dim=1).unsqueeze(1)
-    y=y.scatter(1,index,1)
-    return y.to(torch.long)
-
-
 lr=0.001
 tau=0.05
 max_t=200
 gamma=0.9
+eps=1e-10  # for gumbel sampling
 memory_size=2000
 batchsize=32
 env = gym.make('CartPole-v1')
@@ -132,7 +124,7 @@ class DDPG():
         self.Coptimizer=torch.optim.Adam(self.critic.parameters(),lr=lr)
     
     def choose_action(self,state,eps):
-        # state = np.array(state[0])
+        # state = np.array(state).tolist()
         prob=self.actor.forward(torch.FloatTensor(state).to(device))
         prob=torch.nn.functional.softmax(prob,0)
         #print(prob)
@@ -154,15 +146,15 @@ class DDPG():
         loss.backward()
         self.Aoptimizer.step()
 
-
     def critic_learn(self, batch):
         # Unpack the batch into separate arrays for states, actions, rewards, next states, and dones
         b_s = torch.FloatTensor(np.stack(batch[:, 0])).to(device)
         b_r = torch.FloatTensor(np.stack(batch[:, 1])).to(device)
         b_a = torch.FloatTensor(np.stack(batch[:, 2])).to(device)
+        b_a = torch.nn.functional.one_hot(b_a.long().squeeze(), num_classes=n_action).float().to(device)  # One-hot encoding
         b_s_ = torch.FloatTensor(np.stack(batch[:, 3])).to(device)
         b_d = torch.FloatTensor(np.stack(batch[:, 4])).to(device)
-
+        
         eval_q = self.critic(b_s, b_a)
 
         next_action = torch.nn.functional.softmax(self.target_actor(b_s_), dim=1)
@@ -192,23 +184,24 @@ for j in range(10):
         total_reward = 0
         while t < max_t:
             a = ddpg.choose_action(s, 0.1)  
-            s_, r, terminated, truncated, _ = env.step(a)  
+            s_, r, term, trunc, _ = env.step(a)  
             total_reward += r
-            done = terminated or truncated
+            done = term or trunc
             transition = [s, [r], [a], s_, [done]]
-            print(s)
-            print(s_)
-            print(transition)
+            # print(s)
+            # print(s_)
+            # print(transition)
             ddpg.memory.store(transition)
             if done:
                 break
             s = s_ 
-            if ddpg.memory.size() < batchsize:
+            if ddpg.memory.length < batchsize:
                 continue
             batch = ddpg.memory.sample(batchsize)
-            print("batch", batch)
+            b_a = torch.FloatTensor(np.stack(batch[:, 2]))
+            # print("batch", batch)
             batch = np.array([np.array(item, dtype=object) for item in batch])
-            print("batch", batch)
+            # print("batch", batch)
             ddpg.critic_learn(batch)
             ddpg.actor_learn(batch)
             ddpg.soft_update()
@@ -217,14 +210,15 @@ for j in range(10):
         if episode%10==0:
             total_reward=0.0
             for i in range(1):
-                t_s=env.reset()
+                t_s, _=env.reset()
                 t_r=0.0
                 tr=0.0
                 time=0
                 while(time<300):
                     time+=1
                     t_a=ddpg.choose_action(t_s,0)
-                    ts_,tr,tdone,_=env.step(t_a)
+                    ts_,tr,tterm, ttrunc,_=env.step(t_a)
+                    tdone = tterm or ttrunc
                     t_r+=tr
                     if tdone:
                         break
