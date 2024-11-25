@@ -1,3 +1,4 @@
+
 import os
 from datetime import datetime
 from collections import deque
@@ -12,7 +13,6 @@ from env import Env
 from argparser import args
 from time import sleep
 
-
 ################################## set device to cpu or cuda ##################################
 
 print("============================================================================================")
@@ -26,7 +26,7 @@ if(torch.cuda.is_available()):
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
     print("Device set to : cpu")
-    
+
 print("============================================================================================")
 
 
@@ -41,6 +41,7 @@ class PrioritizedReplayBuffer:
     def add(self, transition, error):
         # Unpack the transition
         state, action, reward, next_state, done = transition
+        # print(" after addition, state", state.shape, "action", action.shape, "reward", reward.shape, "next_state", next_state.shape, "done", type(done))
 
         # Convert to NumPy arrays if needed
         if not isinstance(state, np.ndarray):
@@ -53,27 +54,22 @@ class PrioritizedReplayBuffer:
         transition = (state, action, reward, next_state, done)
 
         # Add to buffer
+        if not isinstance(error, float):
+            raise ValueError("error isn't a float value")
         priority = float((error + 1e-5) ** self.alpha)
         self.buffer.append(transition)
         self.priorities.append(priority)
 
     def sample(self, batch_size, beta=0.4):
-        # Ensure all priorities are scalar before conversion
-        if not all(isinstance(p, (int, float)) for p in self.priorities):
-            # print("Non-scalar values detected in priorities. Cleaning...")
-            self.priorities = deque(float(p[0]) if isinstance(p, (list, np.ndarray)) else float(p) for p in self.priorities)
-
-        # Convert to NumPy array
+        # for idx, p in enumerate(self.priorities):
+        #     print(f"Priority {idx}: {p} (type: {type(p)})") 
         priorities = np.array(self.priorities)
-        if priorities.ndim != 1:
-            raise ValueError(f"Invalid priorities shape: {priorities.shape}. Expected a 1D array.")
 
         # Calculate probabilities for sampling
         probabilities = priorities / priorities.sum()
         indices = np.random.choice(len(self.buffer), batch_size, p=probabilities)
         samples = [self.buffer[idx] for idx in indices]
 
-        # Extract components of the sampled transitions
         states, actions, rewards, next_states, dones = zip(*samples)
 
         # Convert states and next_states to tensors
@@ -81,89 +77,32 @@ class PrioritizedReplayBuffer:
         states = torch.FloatTensor(states).to(device)
 
         next_states = np.vstack(next_states)
-        next_states = torch.FloatTensor(next_states).to(device)
+        next_states = torch.FloatTensor(next_states).to(device) 
+
+        actions = torch.cat(actions, dim=0).view(-1)
+        rewards = torch.cat(rewards, dim=0).squeeze(1)
+        dones = torch.tensor(dones, dtype=torch.float32).to(device)
 
         # Calculate importance-sampling weights
         weights = (len(self.buffer) * probabilities[indices]) ** (-beta)
         weights /= weights.max()
-        weights = torch.tensor(weights, dtype=torch.float32)
+        weights = torch.tensor(weights, dtype=torch.float32).to(device)
 
         # Create a named tuple for the batch
         Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
         batch = Transition(states, actions, rewards, next_states, dones)
-
+        # print("indices", indices.shape)
         return batch, weights, indices
 
     def update_priorities(self, indices, errors):
+        # print("updating priorities:")
+        # for idx, p in enumerate(self.priorities):
+        #     print(f"Priority {idx}: {p} (type: {type(p)})") 
         for idx, error in zip(indices, errors):
             self.priorities[idx] = (error + 1e-5) ** self.alpha
 
     def __len__(self):
         return len(self.buffer)
-
-
-class NormalizedActions:
-    def __init__(self, action_dim):
-        self.action_dim = action_dim
-        self.low = 0
-        self.high = action_dim - 1
-
-    def _action(self, action_prob):
-        action = self.low + (action_prob + 1.0) * 0.5 * (self.high - self.low)
-        action = torch.clamp(action, min=self.low, max=self.high)
-        return action
-
-    def _reverse_action(self, action_tens):
-        action = action_tens.argmax(dim=-1)
-        action = 2 * (action - self.low) / (self.high - self.low) - 1
-        action = torch.clamp(action, self.low, self.high)
-        return action
-
-
-class OrnsteinUhlenbeckNoise(object):
-    def __init__(self, action_dim, mu=0.0, theta=0.15, sigma=0.05, dt=1e-2, decay_period=1000000):
-        self.action_dim = action_dim
-        self.mu = mu
-        self.theta = theta
-        self.sigma = sigma
-        self.dt = dt
-        self.decay_rate = 1.0/decay_period
-        self.state = np.ones(self.action_dim) * self.mu
-
-    def reset(self):
-        self.state = np.ones(self.action_dim) * self.mu
-
-    def get_action(self, action, t=0):
-        # sigma = self.sigma - (self.sigma) * min(1.0, t / self.decay_period)
-        sigma = max(0.01, self.sigma - self.decay_rate * t)
-        # Applying the Ornstein-Uhlenbeck process
-        dx = self.theta * (self.mu - self.state) * self.dt + sigma * np.sqrt(self.dt) * np.random.normal(size=self.action_dim)
-        self.state = self.state + dx
-        state_tens = torch.tensor(self.state, dtype=action.dtype, device=action.device)
-        action_with_noise = action + state_tens
-        return action_with_noise
-
-def compute_td_errors(transitions):
-    states = transitions.state
-    actions = torch.cat(transitions.action, dim=0)
-    rewards = torch.cat(transitions.reward, dim=0).squeeze(1) 
-    next_states = transitions.next_state
-    dones = torch.tensor(transitions.done, dtype=torch.float32) 
-    with torch.no_grad():
-        next_actions = target_policy_net(next_states)
-        target_q_values = target_value_net1(next_states, next_actions)
-        target_q_values = rewards + (1 - dones) * gamma * target_q_values
-    
-    current_q_values = value_net1(states, actions)
-    td_errors = (target_q_values - current_q_values).abs()
-
-    return td_errors.cpu().detach().numpy()
-
-def soft_update(net, target_net, soft_tau=1e-2):
-    for target_param, param in zip(target_net.parameters(), net.parameters()):
-            target_param.data.copy_(
-                target_param.data * (1.0 - soft_tau) + param.data * soft_tau
-            )
 
 class PolicyNetwork(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size):
@@ -172,7 +111,7 @@ class PolicyNetwork(nn.Module):
         self.linear1 = nn.Linear(num_inputs, hidden_size)
         self.linear2 = nn.Linear(hidden_size, hidden_size)
         self.linear3 = nn.Linear(hidden_size, num_actions)
-        self.tanh = nn.Tanh()
+        self.tanh = nn.Tanh() # continuous action-space
         self.softmax = nn.Softmax(dim=1)
         
     def forward(self, state):
@@ -213,8 +152,46 @@ class ValueNetwork(nn.Module):
         
         return x.view(-1, 1)
 
+class EpsilonGreedy:
+    def __init__(self, action_space_size, epsilon, min_epsilon, epsilon_decay=0.99):
+        self.action_space_size = action_space_size
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+        self.min_epsilon = min_epsilon
 
-def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.2, noise_clip=0.5, policy_update=2, target_update = 10, beta=0.4):
+    def select_action(self, policy_action):
+        if random.random() < self.epsilon:
+            # Exploration: Select random action
+            action = random.randint(0, self.action_space_size - 1)
+        else:
+            # Exploitation: Select greedy action
+            action = policy_action.argmax().item()
+        # Decay epsilon
+        self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
+        action = torch.tensor([action])
+        return action
+
+def soft_update(net, target_net, soft_tau=1e-2):
+    for target_param, param in zip(target_net.parameters(), net.parameters()):
+            target_param.data.copy_(
+                target_param.data * (1.0 - soft_tau) + param.data * soft_tau
+            )
+
+def compute_policy_loss(policy_network, q_network, states, actions, entropy_weight=0.01): # actions as prob_tens
+    log_action_probs = torch.log(actions + 1e-8)
+    
+    # Gather log probabilities for the taken actions
+    action_log_probs = log_action_probs.gather(1, actions.unsqueeze(-1)).squeeze(-1) # what are actions here?
+    
+    # Compute entropy
+    entropy = -(log_action_probs * actions).sum(dim=1).mean()
+    
+    # Compute Q-values and policy loss
+    q_values = q_network(states).gather(1, actions.unsqueeze(-1)).squeeze(-1)
+    policy_loss = -(action_log_probs * q_values.detach()).mean() - entropy_weight * entropy
+    
+    return policy_loss
+def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.1, noise_clip=0.5, policy_update=2, target_update = 2, beta=1.0):
 
     batch, weights, indices = replay_buffer.sample(batch_size, beta)
     state, action, reward, next_state, done = batch
@@ -223,19 +200,20 @@ def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.2, noise
     if isinstance(state, list):
         state = np.stack(state)
     
-    state = torch.FloatTensor(state).to(device)
-    next_state = torch.FloatTensor(next_state).to(device)
-    action = torch.FloatTensor(action).to(device)
-    reward = torch.FloatTensor(reward).to(device).view(-1, 1)
-    done = torch.FloatTensor(np.float32(done)).unsqueeze(1).to(device)
-    weights = weights.to(device)
+    state = torch.FloatTensor(state)
+    next_state = torch.FloatTensor(next_state)
+    action = torch.LongTensor(action)
+    reward = torch.FloatTensor(reward).view(-1, 1)
+    done = torch.FloatTensor(np.float32(done)).unsqueeze(1)
+    weights = weights
 
-    # Calculate next actions with target policy
-    next_action = target_policy_net(next_state)
-    # noise = torch.normal(torch.zeros(next_action.size()), noise_std).to(device)
+    # next_action = target_policy_net(next_state).argmax(dim=-1).unsqueeze(-1) #epsilon-greedy method
+    next_action = target_policy_net(next_state).multinomial(1)
+    # print("next_action", next_action)
+    # noise = torch.normal(torch.zeros(next_action.size()), noise_std).to(device) # continuous action-space
     # noise = torch.clamp(noise, -noise_clip, noise_clip)
-    next_action = noise.get_action(next_action, step).float()
-    next_action = torch.clamp(next_action, 0, 1)
+    # next_action = noise.get_action(next_action, step).float()
+    # next_action = torch.clamp(next_action, 0, 1)
 
     target_q_value1 = target_value_net1(next_state, next_action).view(-1, 1)
     target_q_value2 = target_value_net2(next_state, next_action).view(-1, 1)
@@ -244,6 +222,7 @@ def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.2, noise
 
     q_value1 = value_net1(state, action).view(-1, 1)
     q_value2 = value_net2(state, action).view(-1, 1)
+    q_value = torch.min(q_value1, q_value2)
 
     value_loss1 = (weights * F.mse_loss(q_value1, expected_q_value.detach(), reduction='none').squeeze()).mean()
     value_loss2 = (weights * F.mse_loss(q_value2, expected_q_value.detach(), reduction='none').squeeze()).mean()
@@ -256,12 +235,15 @@ def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.2, noise
     value_loss2.backward()
     value_optimizer2.step()
 
-    # Update priorities
-    errors = torch.abs(q_value1 - expected_q_value).detach().cpu().numpy()
+    # print("q_value1", q_value1.shape, "expected", expected_q_value.shape)
+    errors = torch.abs(q_value - expected_q_value).detach().cpu().numpy().flatten()
     replay_buffer.update_priorities(indices, errors)
 
     if step % policy_update == 0:
-        policy_loss = -value_net1(state, action).mean()
+        # policy_loss = -value_net1(state, action).mean() # continuous action-space
+        action_probs = policy_net(state)
+        q_values = value_net1(state, action_probs.argmax(dim=-1).unsqueeze(-1))
+        policy_loss = -(action_probs * q_values).sum(dim=-1).mean()
         policy_optimizer.zero_grad()
         policy_loss.backward()
         policy_optimizer.step()
@@ -270,8 +252,9 @@ def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.2, noise
         soft_update(value_net1, target_value_net1, soft_tau=soft_tau)
         soft_update(value_net2, target_value_net2, soft_tau=soft_tau)
         soft_update(policy_net, target_policy_net, soft_tau=soft_tau)
-    
+
     return target_q_value, expected_q_value
+    
 
 ################################# End of Part I ################################
 
@@ -290,9 +273,8 @@ rewards     = []
 batch_size  = 128
 random_seed = 0      
 gamma = 0.99     
-decay_rate = 0.995
-epsilon = 1          
 beta_start = 0.4  # Initial value
+epsilon = 0.25
 
 print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
@@ -307,7 +289,7 @@ action_dim = args.n_servers
 
 hidden_dim = 256
 
-normalized_actions = NormalizedActions(action_dim)
+# normalized_actions = NormalizedActions(action_dim)
 
 value_net1 = ValueNetwork(state_dim, action_dim, hidden_dim).to(device)
 value_net2 = ValueNetwork(state_dim, action_dim, hidden_dim).to(device)
@@ -322,8 +304,9 @@ soft_update(value_net2, target_value_net2, soft_tau=1.0)
 soft_update(policy_net, target_policy_net, soft_tau=1.0)
 
 env = Env()
-# noise = GaussianExploration()
-noise = OrnsteinUhlenbeckNoise(action_dim)
+# noise = OrnsteinUhlenbeckNoise(action_dim) # continuous action-space
+epsilon_greedy = EpsilonGreedy(action_dim, epsilon, epsilon/10.)
+
 ## Note : print/save frequencies should be > than max_ep_len
 
 ###################### saving files ######################
@@ -465,20 +448,26 @@ while time_step <= max_training_timesteps:
     target_q_value, expected_q_value = 0.0, 0.0
 
     for step in range(max_ep_len):
+        # ## epsilon greedy implementation
         action_tens = policy_net.get_action(state)
         # print("action_tens: ", action_tens)
-        action_tens = noise.get_action(action_tens, step).float()
-        action_tens = torch.clamp(action_tens, 0, 1)
-        # print("action_tens post noise: ", action_tens)
+        # action = epsilon_greedy.select_action(action_tens) #epsilon-greedy method
+
+        # action_tens = noise.get_action(action_tens, step).float() # continuous action-space
+        # action_tens = torch.clamp(action_tens, 0, 1)
+        # # print("action_tens post noise: ", action_tens) # softmax sampling method
+        action = action_tens.multinomial(1)
+
         # Calculate initial TD error for priority
         with torch.no_grad():
-            q_value = value_net1(state, action_tens)
-            action = action_tens.multinomial(1)
-            # action = torch.argmax(action_tens, dim=1)
             next_state, reward, done, _ = env.step(action)
             next_state = torch.FloatTensor(next_state).unsqueeze(0).to(device)
-            next_q_value = target_value_net1(next_state, target_policy_net(next_state))
+            next_action = target_policy_net(next_state).argmax(dim=-1).unsqueeze(-1)
+            q_value = value_net1(state, action_tens)
+            next_q_value = target_value_net1(next_state, next_action)
+            # print("reward", type(reward), "done",  type(done), "q_value", next_q_value.shape)
             td_error = abs(reward + gamma * next_q_value - q_value).item()
+            # print("td_error", type(td_error))
 
         # sample for a single action
         current_ep_reward += reward
@@ -490,14 +479,11 @@ while time_step <= max_training_timesteps:
         mask   = torch.FloatTensor(1 - np.float32([done])).unsqueeze(1).to(device)
 
         # Store transition
+        # print("initially, state", state.shape, "action", action.shape, "reward", reward.shape, "next_state", next_state.shape, "done", type(done))
         replay_buffer.add((state, action, reward, next_state, done), error=td_error)
 
         if len(replay_buffer) > batch_size:
-            transitions, weights, indices = replay_buffer.sample(batch_size, beta=beta_start)
-            # After training, update priorities in replay buffer
-            new_errors = compute_td_errors(transitions)
-            replay_buffer.update_priorities(indices, new_errors)
-            target_q_value, expected_q_value = td3_update(step, batch_size)
+            target_q_value, expected_q_value = td3_update(step, batch_size, beta = beta_start)
         
         if time_step % 100 == 0: # dynamic batch sampling
             beta_start = min(1.0, beta_start + 0.01)
@@ -511,7 +497,6 @@ while time_step <= max_training_timesteps:
 
         # log in logging file
         if time_step % log_freq == 0:
-
             # log average reward till last episode
             log_avg_reward = log_running_reward / log_running_episodes
             log_avg_reward = round(log_avg_reward, 4)
@@ -531,7 +516,6 @@ while time_step <= max_training_timesteps:
             
         # printing average reward
         if time_step % print_freq == 0:
-
             # print average reward till last episode
             print_avg_reward = print_running_reward / print_running_episodes
             print_avg_reward = round(print_avg_reward, 2)
@@ -553,11 +537,8 @@ while time_step <= max_training_timesteps:
             print("--------------------------------------------------------------------------------------------")
         state = next_state
         
-        # break; if the episode is over
         if done:
             break
-
-    # next_state = torch.FloatTensor(state).unsqueeze(0).to(device)
     
     print_running_reward += current_ep_reward
     print_running_episodes += 1
