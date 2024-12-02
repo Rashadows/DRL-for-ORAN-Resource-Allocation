@@ -1,3 +1,7 @@
+'''
+this is adapted from https://github.com/LxzGordon/Deep-Reinforcement-Learning-with-pytorch/tree/master/algorithm/policy%20gradient
+'''
+
 import os
 from datetime import datetime
 from time import sleep

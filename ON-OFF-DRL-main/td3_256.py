@@ -1,3 +1,6 @@
+'''
+ this is adapted from https://github.com/higgsfield/RL-Adventure-2
+'''
 
 import os
 from datetime import datetime

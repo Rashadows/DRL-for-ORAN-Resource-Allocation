@@ -266,7 +266,7 @@ print("=========================================================================
 
 model = ActorCritic(args.n_servers * args.n_resources + args.n_resources + 1, args.n_servers).to(device)
 optimizer = optim.Adam(model.parameters())
-replay_buffer = EpisodicReplayMemory(capacity, max_episode_length)
+replay_buffer = EpisodicReplayMemory(state_dim, action_dim, capacity)
 
 start_time = datetime.now().replace(microsecond=0)
 print("Started training at (GMT) : ", start_time)
