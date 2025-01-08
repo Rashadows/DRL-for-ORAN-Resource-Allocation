@@ -194,41 +194,33 @@ def compute_policy_loss(policy_network, q_network, states, actions, entropy_weig
     policy_loss = -(action_log_probs * q_values.detach()).mean() - entropy_weight * entropy
     
     return policy_loss
-def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.1, noise_clip=0.5, policy_update=2, target_update = 2, beta=1.0):
-
+def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, policy_update=2, target_update=2, beta=1.0):
     batch, weights, indices = replay_buffer.sample(batch_size, beta)
     state, action, reward, next_state, done = batch
 
-    # Validate and stack states
-    if isinstance(state, list):
-        state = np.stack(state)
-    
-    state = torch.FloatTensor(state)
-    next_state = torch.FloatTensor(next_state)
-    action = torch.LongTensor(action)
-    reward = torch.FloatTensor(reward).view(-1, 1)
-    done = torch.FloatTensor(np.float32(done)).unsqueeze(1)
-    weights = weights
+    state = torch.FloatTensor(state).to(device)
+    next_state = torch.FloatTensor(next_state).to(device)
+    action = torch.LongTensor(action).to(device)
+    reward = torch.FloatTensor(reward).view(-1, 1).to(device)
+    done = torch.FloatTensor(done).view(-1, 1).to(device)
 
-    # next_action = target_policy_net(next_state).argmax(dim=-1).unsqueeze(-1) #epsilon-greedy method
-    next_action = target_policy_net(next_state).multinomial(1)
-    # print("next_action", next_action)
-    # noise = torch.normal(torch.zeros(next_action.size()), noise_std).to(device) # continuous action-space
-    # noise = torch.clamp(noise, -noise_clip, noise_clip)
-    # next_action = noise.get_action(next_action, step).float()
-    # next_action = torch.clamp(next_action, 0, 1)
+    # Get next actions from the target policy network
+    next_action = target_policy_net(next_state).max(1)[1].unsqueeze(-1)
 
-    target_q_value1 = target_value_net1(next_state, next_action).view(-1, 1)
-    target_q_value2 = target_value_net2(next_state, next_action).view(-1, 1)
+    # Compute target Q-values
+    target_q_value1 = target_value_net1(next_state, next_action)
+    target_q_value2 = target_value_net2(next_state, next_action)
     target_q_value = torch.min(target_q_value1, target_q_value2)
+
     expected_q_value = reward + (1.0 - done) * gamma * target_q_value
 
-    q_value1 = value_net1(state, action).view(-1, 1)
-    q_value2 = value_net2(state, action).view(-1, 1)
-    q_value = torch.min(q_value1, q_value2)
+    # Compute current Q-values for both Q-networks
+    q_value1 = value_net1(state, action)
+    q_value2 = value_net2(state, action)
 
-    value_loss1 = (weights * F.mse_loss(q_value1, expected_q_value.detach(), reduction='none').squeeze()).mean()
-    value_loss2 = (weights * F.mse_loss(q_value2, expected_q_value.detach(), reduction='none').squeeze()).mean()
+    # Calculate value loss for both Q-networks
+    value_loss1 = (weights * F.mse_loss(q_value1, expected_q_value.detach(), reduction='none')).mean()
+    value_loss2 = (weights * F.mse_loss(q_value2, expected_q_value.detach(), reduction='none')).mean()
 
     value_optimizer1.zero_grad()
     value_loss1.backward()
@@ -238,19 +230,25 @@ def td3_update(step, batch_size, gamma=0.99, soft_tau=1e-2, noise_std=0.1, noise
     value_loss2.backward()
     value_optimizer2.step()
 
-    # print("q_value1", q_value1.shape, "expected", expected_q_value.shape)
-    errors = torch.abs(q_value - expected_q_value).detach().cpu().numpy().flatten()
+    # Update replay buffer priorities
+    errors = torch.abs(q_value1 - expected_q_value).detach().cpu().numpy().flatten()
     replay_buffer.update_priorities(indices, errors)
 
+    # Policy update (policy updates only after `policy_update` steps)
     if step % policy_update == 0:
-        # policy_loss = -value_net1(state, action).mean() # continuous action-space
         action_probs = policy_net(state)
-        q_values = value_net1(state, action_probs.argmax(dim=-1).unsqueeze(-1))
-        policy_loss = -(action_probs * q_values).sum(dim=-1).mean()
+        # Compute Q-values for the policy network (use the current action probabilities)
+        q_values = torch.min(value_net1(state, action_probs.argmax(dim=-1).unsqueeze(-1)),
+                             value_net2(state, action_probs.argmax(dim=-1).unsqueeze(-1)))
+        
+        # Compute the policy loss (maximize Q-value)
+        policy_loss = -(action_probs * q_values.detach()).sum(dim=-1).mean()
+
         policy_optimizer.zero_grad()
         policy_loss.backward()
         policy_optimizer.step()
 
+    # Soft update target networks
     if step % target_update == 0:
         soft_update(value_net1, target_value_net1, soft_tau=soft_tau)
         soft_update(value_net2, target_value_net2, soft_tau=soft_tau)
@@ -373,7 +371,7 @@ print("max timesteps per episode : ", max_ep_len)
 
 print("model saving frequency : " + str(save_model_freq) + " timesteps")
 print("log frequency : " + str(log_freq) + " timesteps")
-print("printing average reward over episodes in last : " + str(print_freq) + " timesteps")
+# print("printing average reward over episodes in last : " + str(print_freq) + " timesteps")
 
 print("--------------------------------------------------------------------------------------------")
 

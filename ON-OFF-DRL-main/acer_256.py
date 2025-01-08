@@ -317,9 +317,7 @@ while time_step <= max_training_timesteps:
         # select action with policy
         state = torch.FloatTensor(state).unsqueeze(0).to(device)
         policy, q_value, value = model(state)
-        print("policy", policy)
         action = policy.multinomial(1)
-        print("action", action)
         next_state, reward, done, info = env.step(action.item())
         time_step +=1
         current_ep_reward += reward
@@ -384,7 +382,7 @@ while time_step <= max_training_timesteps:
     compute_acer_loss(policies, q_values, values, actions, rewards, retrace, masks, policies)
     
     
-    off_policy_update(128)
+    off_policy_update(batch_size=128)
     
     print_running_reward += current_ep_reward
     print_running_episodes += 1

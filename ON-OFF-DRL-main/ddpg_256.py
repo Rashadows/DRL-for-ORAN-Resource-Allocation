@@ -28,35 +28,30 @@ else:
     print("Device set to : cpu")
 
 print("============================================================================================")
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
 
-class replay_memory():
-    def __init__(self,replay_memory_size):
-        self.memory_size=replay_memory_size
-        self.memory=np.array([])
-        self.cur=0
-        self.length= 0
-#[s,a,r,s_,done] make sure all info are lists, i.e. [[[1,2],[3]],[1],[0],[[4,5],[6]],[True]]
-    def store(self, trans):
-        trans = [np.array(item) for item in trans]
-
-        if len(trans) != 5:  # Ensure all five elements are present
-            raise ValueError("Invalid transition: expected 5 elements, got {}".format(len(trans)))
-
-        if self.length < self.memory_size:
-            if self.length == 0:
-                # Initialize memory with dtype=object
-                self.memory = np.empty(self.memory_size, dtype=object)
-        else:
-            # Overwrite oldest data in circular buffer
-            self.length = self.length % self.memory_size
-        self.memory[self.length] = trans
-        self.length += 1
+    def store(self, transition):
+        """Store a transition in the buffer."""
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = transition
+        self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
-        if self.length < batch_size:
-            return -1
-        indices = np.random.choice(self.length, batch_size, replace=False)
-        return np.array([self.memory[i] for i in indices], dtype=object)
+        """Sample a batch of transitions."""
+        if len(self.buffer) < batch_size:
+            raise ValueError(f"Not enough samples to draw a batch of size {batch_size}. Current size: {len(self.buffer)}.")
+        indices = np.random.choice(len(self.buffer), batch_size, replace=False)
+        batch = [self.buffer[i] for i in indices]
+        return batch
+
+    def __len__(self):
+        """Return the current size of the buffer."""
+        return len(self.buffer)
 
 class Actor(nn.Module):
     def __init__(self,state_dim,act_dim):
@@ -93,7 +88,7 @@ def onehot_action(prob):
     return y.to(torch.long)
 
 def gumbel_softmax(prob,temperature=1.0,hard=False):
-    #print(prob)
+    # print(prob)
     logits=torch.log(prob)
     seed=torch.FloatTensor(logits.shape).uniform_().to(device)
     logits=logits-torch.log(-torch.log(seed+eps)+eps) # gumbel sampling
@@ -110,9 +105,9 @@ class DDPG():
         self.target_actor=Actor(state_dim,action_dim).to(device)
         self.critic=Critic(state_dim,action_dim).to(device)
         self.target_critic=Critic(state_dim,action_dim).to(device)
-        self.memory=replay_memory(memory_size)
-        self.Aoptimizer=torch.optim.Adam(self.actor.parameters(),lr=lr)
-        self.Coptimizer=torch.optim.Adam(self.critic.parameters(),lr=lr)
+        self.memory=ReplayBuffer(memory_size)
+        self.Aoptimizer=torch.optim.Adam(self.actor.parameters(),lr=lr_actor)
+        self.Coptimizer=torch.optim.Adam(self.critic.parameters(),lr=lr_critic)
     
     def choose_action(self,state,eps):
         # state = np.array(state).tolist()
@@ -174,14 +169,15 @@ print("=========================================================================
 ####### initialize environment hyperparameters and DDPG hyperparameters ######
 print("setting training environment : ")
 
-memory_size = 2000
-lr = 0.001
-max_training_timesteps = 100000   # 300 ex
+memory_size = 10000
+lr_actor = 0.001
+lr_critic = 0.0003
+max_training_timesteps = 100000
 max_ep_len = 225
-batchsize = 32
+batch_size = 128
 random_seed = 0      
-tau = 0.05
-gamma = 0.9
+tau = 0.1
+gamma = 0.99
 eps = 1e-10  # for gumbel sampling
 
 print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
@@ -281,8 +277,8 @@ print("discount factor (gamma) : ", gamma)
 
 print("--------------------------------------------------------------------------------------------")
 
-print("optimizer learning rate (actor) : ", lr)
-print("optimizer learning rate (critic) : ", lr)
+print("optimizer learning rate (actor) : ", lr_actor)
+print("optimizer learning rate (critic) : ", lr_critic)
 
 print("--------------------------------------------------------------------------------------------")
 print("setting random seed to ", random_seed)
@@ -325,24 +321,23 @@ while time_step <= max_training_timesteps:
     current_ep_reward = 0
     
     for step in range(max_ep_len):
-        a = ddpg.choose_action(state, 0.1)  
-        next_state, r, done, _ = env.step(a)  
+        action = ddpg.choose_action(state, 0.1)  
+        next_state, reward, done, _ = env.step(action)  
         
-        current_ep_reward += r
+        current_ep_reward += reward
         time_step += 1
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
         sleep(0.1) # we sleep to read the reward in console
         
-        transition = [state, [r], [a], next_state, [done]]
+        transition = [state, reward, action, next_state, done]
         # print(state)
         # print(next_state)
         # print(transition)
         ddpg.memory.store(transition)
 
-        if ddpg.memory.length < batchsize:
+        if len(ddpg.memory) < batch_size:
             continue
-        batch = ddpg.memory.sample(batchsize)
-        # print("batch", batch)
+        batch = ddpg.memory.sample(batch_size)
         batch = np.array([np.array(item, dtype=object) for item in batch])
         # print("batch", batch)
         ddpg.critic_learn(batch)
