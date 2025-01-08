@@ -53,6 +53,24 @@ class ReplayBuffer:
         """Return the current size of the buffer."""
         return len(self.buffer)
 
+
+class OU_Noise:
+    def __init__(self, action_dim, mu=0.0, theta=0.15, sigma=0.2):
+        self.action_dim = action_dim
+        self.mu = mu
+        self.theta = theta
+        self.sigma = sigma
+        self.reset()
+
+    def reset(self):
+        self.state = np.ones(self.action_dim) * self.mu
+
+    def sample(self):
+        dx = self.theta * (self.mu - self.state) + self.sigma * np.random.randn(self.action_dim)
+        self.state = self.state + dx
+        return self.state
+    
+
 class Actor(nn.Module):
     def __init__(self,state_dim,act_dim):
         super(Actor,self).__init__()
@@ -101,25 +119,31 @@ def gumbel_softmax(prob,temperature=1.0,hard=False):
 
 class DDPG():
     def __init__(self):
-        self.actor=Actor(state_dim,action_dim).to(device)
-        self.target_actor=Actor(state_dim,action_dim).to(device)
-        self.critic=Critic(state_dim,action_dim).to(device)
-        self.target_critic=Critic(state_dim,action_dim).to(device)
-        self.memory=ReplayBuffer(memory_size)
-        self.Aoptimizer=torch.optim.Adam(self.actor.parameters(),lr=lr_actor)
-        self.Coptimizer=torch.optim.Adam(self.critic.parameters(),lr=lr_critic)
-    
-    def choose_action(self,state,eps):
-        # state = np.array(state).tolist()
-        prob=self.actor.forward(torch.FloatTensor(state).to(device))
-        prob=torch.nn.functional.softmax(prob,0)
-        #print(prob)
-        if np.random.uniform()>eps:
-            action=torch.argmax(prob,dim=0).tolist()
-        else:
-            action=np.random.randint(0,action_dim)
-        return action
-    
+        self.actor = Actor(state_dim, action_dim).to(device)
+        self.target_actor = Actor(state_dim, action_dim).to(device)
+        self.critic = Critic(state_dim, action_dim).to(device)
+        self.target_critic = Critic(state_dim, action_dim).to(device)
+        self.memory = ReplayBuffer(memory_size)
+        self.Aoptimizer = torch.optim.Adam(self.actor.parameters(), lr=lr_actor)
+        self.Coptimizer = torch.optim.Adam(self.critic.parameters(), lr=lr_critic)
+        self.ou_noise = OU_Noise(action_dim)  # Initialize OU noise for exploration
+
+    def choose_action(self, state, exploration=True):
+        state = torch.FloatTensor(state).to(device).unsqueeze(0)
+        logits = self.actor(state).squeeze(0)  # Get logits from the actor network
+        
+        if exploration:
+            # Add OU noise to logits for exploration
+            noise = torch.FloatTensor(self.ou_noise.sample()).to(device)
+            logits = logits + noise
+
+        # Apply softmax to get action probabilities
+        action_probs = F.softmax(logits, dim=-1)
+
+        # Sample an action from the softmax probabilities
+        action = torch.multinomial(action_probs, num_samples=1).item()
+        return action, action_probs.cpu().detach().numpy()
+
     def actor_learn(self, batch):
         b_s = torch.FloatTensor(np.stack(batch[:, 0])).to(device)
         
@@ -133,7 +157,6 @@ class DDPG():
         self.Aoptimizer.step()
 
     def critic_learn(self, batch):
-        # Unpack the batch into separate arrays for states, actions, rewards, next states, and dones
         b_s = torch.FloatTensor(np.stack(batch[:, 0])).to(device)
         b_r = torch.FloatTensor(np.stack(batch[:, 1])).to(device)
         b_a = torch.FloatTensor(np.stack(batch[:, 2])).to(device)
@@ -321,7 +344,7 @@ while time_step <= max_training_timesteps:
     current_ep_reward = 0
     
     for step in range(max_ep_len):
-        action = ddpg.choose_action(state, 0.1)  
+        action, _ = ddpg.choose_action(state, 0.1)  
         next_state, reward, done, _ = env.step(action)  
         
         current_ep_reward += reward
