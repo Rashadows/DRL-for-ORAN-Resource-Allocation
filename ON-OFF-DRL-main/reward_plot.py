@@ -24,7 +24,8 @@ def step_plot():
         "ACER": "green",
         "PPO": "red",
         "TD3": "blue",
-        "DDPG": "purple"
+        "DDPG": "purple",
+        "DDPG2": "yellow"
     }
 
     ax = plt.gca()
@@ -76,7 +77,8 @@ def episode_plot():
         "ACER": "green",
         "PPO": "red",
         "TD3": "blue",
-        "DDPG": "purple"
+        "DDPG": "purple", 
+        "DDPG2": "yellow"
     }
 
     ax = plt.gca()
