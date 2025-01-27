@@ -13,27 +13,3 @@ result = v.varName[2] gives the second char defined in addVar(name="x_" + str(i)
 ----------Notes:
 
 uncomment and work out the annotation point in reward plot file for convergence points
-
-TD3 generated figures for reward plot are 17 files that work progressively. Instead, one figure needed.
-
-To facilitate getting higher-quality training data, you may reduce the scale of the noise over the course of training. 
-(We do not do this in SpinningUp implementation, and keep noise scale fixed throughout.)
-
-In order for the algorithm to have stable behavior, 
-the replay buffer should be large enough to contain a wide range of experiences, 
-but it may not always be good to keep everything. 
-If you only use the very-most recent data, you will overfit to that and things will break; 
-if you use too much experience, you may slow down your learning. This may take some tuning to get right.
-
-SpinningUp DDPG implementation uses a trick to improve exploration at the start of training. 
-For a fixed number of steps at the beginning (set with the start_steps keyword argument), 
-the agent takes actions which are sampled from a uniform random distribution over valid actions. 
-After that, it returns to normal DDPG exploration.
-
-----------Extras:
-
-this is implmeented already
-    # Set up optimizers for policy and q-function
-    def setup_optimizers(self):
-        self.pi_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=lr_actor)
-        self.q_optimizer = torch.optim.Adam(self.q_params, lr=lr_critic)

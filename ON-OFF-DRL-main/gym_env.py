@@ -143,7 +143,11 @@ class ClusterOptimizationEnv(gym.Env):
             )
             for i in range(self.n_tasks)]
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
         self.cur = 0
         self.power_usage = []
         self.latency = []
@@ -153,7 +157,8 @@ class ClusterOptimizationEnv(gym.Env):
             )
             for i in range(self.n_machines)
         ]
-        return self.get_states(self.tasks[self.cur])
+        observation = self.get_states(self.tasks[self.cur])
+        return observation, {}
 
     def step(self, action):
         self.cur_time = self.batch_task.iloc[self.cur]['start_time']
@@ -178,7 +183,12 @@ class ClusterOptimizationEnv(gym.Env):
         self.power_usage.append(np.sum([m.power_usage for m in self.machines]))
 
         self.machines[action].add_task(cur_task)
-        return self.get_states(nxt_task), self.get_reward(nxt_task), done, {"latency": self.latency, "power_usage": self.power_usage}
+        
+        # Since your environment likely doesn't have a truncation condition, set truncated to False
+        truncated = False
+        info = {"latency": self.latency, "power_usage": self.power_usage}
+
+        return self.get_states(nxt_task), self.get_reward(nxt_task), done, truncated, info
 
     def get_states(self, nxt_task):
         """

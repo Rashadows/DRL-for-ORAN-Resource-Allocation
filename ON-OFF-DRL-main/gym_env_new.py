@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-
 """
-Code from: https://github.com/gohsyi/cluster_optimization
+Updated Environment Code for DQN Training
+Adapted to fix the issue with infinite observation space bounds and initialization errors
 """
 
 ############################### Import libraries ###############################
@@ -13,11 +13,13 @@ import numpy as np
 import random
 from collections import deque
 from argparser import args
+import gym
+from gym import spaces
 
-
-class Env():
+class ClusterOptimizationEnv(gym.Env):
     def __init__(self):
-        
+        super(ClusterOptimizationEnv, self).__init__()
+
         self.P_0 = args.P_0
         self.P_100 = args.P_100
         self.T_on = args.T_on
@@ -27,7 +29,7 @@ class Env():
         self.w2 = args.w2
         self.w3 = args.w3
 
-        #  data paths
+        # Data paths
         self.machine_meta_path = os.path.join('data', 'machine_meta.csv')
         self.machine_usage_path = os.path.join('data', 'machine_usage.csv')
         self.container_meta_path = os.path.join('data', 'container_meta.csv')
@@ -35,7 +37,7 @@ class Env():
         self.batch_task_path = os.path.join('data', 'batch_task.csv')
         self.batch_instance_path = os.path.join('data', 'batch_instance.csv')
 
-        #  data columns
+        # Data columns
         self.machine_meta_cols = [
             'machine_id',  # uid of machine
             'time_stamp',  # time stamp, in second
@@ -52,55 +54,55 @@ class Env():
             'mem_util_percent',  # [0, 100]
             'mem_gps',  # normalized memory bandwidth, [0, 100]
             'mkpi',  # cache miss per thousand instruction
-            'net_in',  # normarlized in coming network traffic, [0, 100]
-            'net_out',  # normarlized out going network traffic, [0, 100]
-            'disk_io_percent',  # [0, 100], abnormal values are of -1 or 101 |
+            'net_in',  # normalized incoming network traffic, [0, 100]
+            'net_out',  # normalized outgoing network traffic, [0, 100]
+            'disk_io_percent',  # [0, 100], abnormal values are of -1 or 101
         ]
         self.container_meta_cols = [
             'container_id',  # uid of a container
-            'machine_id',  # uid of container's host machine  
-            'time_stamp',  # 
+            'machine_id',  # uid of container's host machine
+            'time_stamp',
             'app_du',  # containers with same app_du belong to same application group
-            'status',  # 
-            'cpu_request',  # 100 is 1 core 
-            'cpu_limit',  # 100 is 1 core 
-            'mem_size',  # normarlized memory, [0, 100]
+            'status',
+            'cpu_request',  # 100 is 1 core
+            'cpu_limit',  # 100 is 1 core
+            'mem_size',  # normalized memory, [0, 100]
         ]
         self.container_usage_cols = [
             'container_id',  # uid of a container
-            'machine_id',  # uid of container's host machine  
-            'time_stamp',  # 
+            'machine_id',  # uid of container's host machine
+            'time_stamp',
             'cpu_util_percent',
             'mem_util_percent',
             'cpi',
             'mem_gps',  # normalized memory bandwidth, [0, 100]
             'mpki',
-            'net_in',  # normarlized in coming network traffic, [0, 100]
-            'net_out',  # normarlized out going network traffic, [0, 100]
+            'net_in',  # normalized incoming network traffic, [0, 100]
+            'net_out',  # normalized outgoing network traffic, [0, 100]
             'disk_io_percent'  # [0, 100], abnormal values are of -1 or 101
         ]
         self.batch_task_cols = [
             'task_name',  # task name. unique within a job
-            'instance_num',  # number of instances  
+            'instance_num',  # number of instances
             'job_name',  # job name
             'task_type',  # task type
             'status',  # task status
             'start_time',  # start time of the task
-            'end_time',  # end of time the task
+            'end_time',  # end time of the task
             'plan_cpu',  # number of cpu needed by the task, 100 is 1 core
-            'plan_mem'  # normalized memorty size, [0, 100]
+            'plan_mem'  # normalized memory size, [0, 100]
         ]
         self.batch_instance_cols = [
             'instance_name',  # instance name of the instance
             'task_name',  # task name. unique within a job
-            'instance_num',  # number of instances  
+            'instance_num',  # number of instances
             'job_name',  # job name
             'task_type',  # task type
             'status',  # task status
             'start_time',  # start time of the task
-            'end_time',  # end of time the task
+            'end_time',  # end time of the task
             'machine_id',  # uid of host machine of the instance
-            'seq_no'  # sequence number of this instance
+            'seq_no',  # sequence number of this instance
             'total_seq_no',  # total sequence number of this instance
             'cpu_avg',  # average cpu used by the instance, 100 is 1 core
             'cpu_max',  # max cpu used by the instance, 100 is 1 core
@@ -108,163 +110,180 @@ class Env():
             'mem_max',  # max memory used by the instance (normalized, [0, 100])
         ]
 
+        # Initialize variables
         self.cur = 0
-        self.loadcsv()
         self.latency = []
-        
-        
-    def loadcsv(self):
+        self.cur_time = 0
 
-        #  read csv into DataFrames
+        # Load data
+        self.loadcsv()
+
+        # Now that data is loaded, we can define the observation space with finite bounds
+        self.define_observation_space()
+
+        # Define the action space
+        self.action_space = spaces.Discrete(self.n_servers)
+
+    def loadcsv(self):
+        # Read CSV into DataFrames
         self.machine_meta = pd.read_csv(self.machine_meta_path, header=None, names=self.machine_meta_cols)
         self.machine_meta = self.machine_meta[self.machine_meta['time_stamp'] == 0]
         self.machine_meta = self.machine_meta[['machine_id', 'cpu_num', 'mem_size']]
+        self.machine_meta.reset_index(drop=True, inplace=True)
 
         self.batch_instance = pd.read_csv(self.batch_instance_path, header=None, names=self.batch_instance_cols)
         self.batch_instance = self.batch_instance[(self.batch_instance['cpu_avg'] != "") & (self.batch_instance['mem_avg'] != "")]
-        self.batch_instance = self.batch_instance[['cpu_avg','mem_avg']]
+        self.batch_instance = self.batch_instance[['cpu_avg', 'mem_avg']]
+        self.batch_instance.reset_index(drop=True, inplace=True)
 
         self.batch_task = pd.read_csv(self.batch_task_path, header=None, names=self.batch_task_cols)
         self.batch_task = self.batch_task[self.batch_task['status'] == 'Terminated']
-        self.batch_task = self.batch_task[self.batch_task['plan_cpu'] <= 100]  # will stuck the pending queue
+        self.batch_task = self.batch_task[self.batch_task['plan_cpu'] <= 100]
         self.batch_task = self.batch_task.sort_values(by='start_time')
+        self.batch_task.reset_index(drop=True, inplace=True)
 
         self.n_machines = self.n_servers
-        self.n_tasks = 2000
-        self.tasks = [ Task(
+        self.n_tasks = min(2000, len(self.batch_task))
+        self.tasks = [Task(
             self.batch_task.iloc[i]['task_name'],
             self.batch_task.iloc[i]['start_time'],
             self.batch_task.iloc[i]['end_time'],
             self.batch_task.iloc[i]['plan_cpu'],
             self.batch_task.iloc[i]['plan_mem'],
-        ) for i in range(self.n_tasks) ]
+        )
+        for i in range(self.n_tasks)]
+     
+    def define_observation_space(self):
+        # Define the maximum values for each feature
+        max_cpu = 100.0  # Maximum CPU idle
+        max_mem = 100.0  # Maximum memory empty
+        max_last_time = 121971.0  # Maximum last_time (from your data)
 
-    def reset(self):
+        # Observation: [cpu_idle for all machines] + [mem_empty for all machines] + [nxt_task.plan_cpu, nxt_task.plan_mem, nxt_task.last_time]
+        num_machines = self.n_servers
+        observation_dim = num_machines * 2 + 3  # cpu_idle and mem_empty for each machine, plus 3 task features
+
+        # Define the low and high bounds for the observation space
+        obs_low = np.zeros(observation_dim, dtype=np.float32)  # All features have a minimum value of 0
+        obs_high = np.full(observation_dim, max(max_cpu, max_mem, max_last_time), dtype=np.float32)  # All features share the same maximum value
+
+        # Correctly define the observation space with low and high bounds
+        self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
         self.cur = 0
         self.power_usage = []
         self.latency = []
-        self.machines = [ Machine(
-            100, 100,
-            self.machine_meta.iloc[i]['machine_id']
-        ) for i in range(self.n_machines) ]
-
-        return self.get_states(self.tasks[self.cur])
+        self.machines = [Machine(
+                100, 100,
+                self.machine_meta.iloc[i]['machine_id']
+            )
+            for i in range(self.n_machines)
+        ]
+        observation = self.get_states(self.tasks[self.cur])
+        info = {}
+        return observation, info
 
     def step(self, action):
         self.cur_time = self.batch_task.iloc[self.cur]['start_time']
         cur_task = self.tasks[self.cur]
-        
-        done = False
+
+        terminated = False
         self.cur += 1
-        
-        if self.cur == self.n_tasks:
+
+        if self.cur >= self.n_tasks:
             self.latency = [t.start_time - t.arrive_time for t in self.tasks]
             for i in range(1, len(self.latency)):
                 self.latency[i] = self.latency[i] + self.latency[i - 1]
-            
-            done = True
-            self.cur = 0
-        
-        nxt_task = self.tasks[self.cur]
 
-        ### simulate to current time
+            terminated = True
+            self.cur = 0  # Reset for potential next episode
+
+        # Ensure nxt_task is valid
+        if self.cur < self.n_tasks:
+            nxt_task = self.tasks[self.cur]
+        else:
+            nxt_task = Task("", 0, 0, 0, 0)  # Dummy task
+
+        # Simulate to current time
         for m in self.machines:
             m.process(self.cur_time)
         self.power_usage.append(np.sum([m.power_usage for m in self.machines]))
-        
+
         self.machines[action].add_task(cur_task)
-        return self.get_states(nxt_task), self.get_reward(nxt_task), done, (self.latency, self.power_usage)
+
+        truncated = False  # Assuming no truncation
+        info = {"latency": self.latency, "power_usage": self.power_usage}
+
+        observation = self.get_states(nxt_task)
+        reward = self.get_reward(nxt_task)
+
+        return observation, reward, terminated, truncated, info
+
 
     def get_states(self, nxt_task):
-        states = [m.cpu_idle for m in self.machines] + \
-                 [m.mem_empty for m in self.machines] + \
-                 [nxt_task.plan_cpu, nxt_task.plan_mem, nxt_task.last_time]
-        
-        return np.array(states)  # scale
+        """
+        Get the current state of the environment and normalize the features.
+        """
+        # Define the maximum values for normalization
+        max_cpu = 100.0  # Maximum CPU idle
+        max_mem = 100.0  # Maximum memory empty
+        max_last_time = 121971.0  # Maximum last_time (from your data)
+
+        # Get the raw state values
+        cpu_idle = [m.cpu_idle for m in self.machines]
+        mem_empty = [m.mem_empty for m in self.machines]
+        task_features = [nxt_task.plan_cpu, nxt_task.plan_mem, nxt_task.last_time]
+
+        # Normalize the state values
+        cpu_idle_normalized = [x / max_cpu for x in cpu_idle]
+        mem_empty_normalized = [x / max_mem for x in mem_empty]
+        task_features_normalized = [
+            nxt_task.plan_cpu / max_cpu,
+            nxt_task.plan_mem / max_mem,
+            nxt_task.last_time / max_last_time,
+        ]
+
+        # Combine the normalized features into a single state array
+        states = cpu_idle_normalized + mem_empty_normalized + task_features_normalized
+        return np.array(states, dtype=np.float32)
 
     def get_reward(self, nxt_task):
-        penalty_factor = 0.15
+        """
+        Calculate the reward based on power usage and latency.
+        """
         reward = -self.w1 * self.calc_total_power() - self.w2 * self.calc_total_latency()
-
-        task_row = None
-        if 'task_name' in self.batch_instance.columns and hasattr(nxt_task, 'name'):
-            # Select the row using task_name if available
-            task_row = self.batch_instance.loc[self.batch_instance['task_name'] == nxt_task.name]
-        elif isinstance(nxt_task, int) and 0 <= nxt_task < len(self.batch_instance):
-            # Fallback to index-based access if task_name is unavailable
-            task_row = self.batch_instance.iloc[[nxt_task]]
-
-        if task_row is not None and not task_row.empty:
-            # Accessing the first entry in case of multiple rows
-            if task_row['cpu_avg'].iloc[0] > 0.9 or task_row['mem_avg'].iloc[0] > 0.9:
-                reward -= self.w3 * penalty_factor  # introduce penalty factor
-
         return reward
-    
-    # def get_reward(self, nxt_task):
-    #     """
-    #     Calculate the reward based on power usage, latency, task completion, 
-    #     and penalties for exceeding CPU/memory constraints.
-    #     """
-    #     penalty_factor_base = 0.15
-    #     task_completion_reward = 10  # Reward for completing a task successfully
-    #     unfinished_task_penalty = -5  # Penalty for tasks left incomplete
-    #     reward = -self.w1 * self.calc_total_power() - self.w2 * self.calc_total_latency()
 
-    #     # Check if the task's CPU and memory utilization exceeds the critical threshold
-    #     critical_threshold = 0.9
-    #     task_row = None
-    #     if 'task_name' in self.batch_instance.columns and hasattr(nxt_task, 'name'):
-    #         # Select the row using task_name if available
-    #         task_row = self.batch_instance.loc[self.batch_instance['task_name'] == nxt_task.name]
-    #     elif isinstance(nxt_task, int) and 0 <= nxt_task < len(self.batch_instance):
-    #         # Fallback to index-based access if task_name is unavailable
-    #         task_row = self.batch_instance.iloc[[nxt_task]]
-
-    #     if task_row is not None and not task_row.empty:
-    #         cpu_avg = task_row['cpu_avg'].iloc[0]
-    #         mem_avg = task_row['mem_avg'].iloc[0]
-
-    #         if cpu_avg > critical_threshold or mem_avg > critical_threshold:
-    #             penalty_factor = penalty_factor_base * max(cpu_avg - critical_threshold, mem_avg - critical_threshold)
-    #             reward -= self.w3 * penalty_factor  # Apply scaled penalty
-
-    #     # Reward for task completion
-    #     if hasattr(nxt_task, 'start_time') and hasattr(nxt_task, 'end_time'):
-    #         if nxt_task.end_time <= self.cur_time:
-    #             reward += task_completion_reward
-    #         else:
-    #             reward += unfinished_task_penalty
-
-    #     return reward
-       
     def calc_total_power(self):
+        total_power = 0
         for m in self.machines:
-            return self.P_0 + (self.P_100 - self.P_0) * (2 * m.cpu() - m.cpu()**(1.4))
-    
-    # def calc_total_power(self):
-    #     total_power = 0
-    #     for m in self.machines:
-    #         cpu_util = m.cpu()
-    #         total_power += self.P_0 + (self.P_100 - self.P_0) * (2 * cpu_util - cpu_util**1.4)
-    #     return total_power
-    
+            cpu_usage = m.cpu()
+            total_power += self.P_0 + (self.P_100 - self.P_0) * (2 * cpu_usage - cpu_usage ** 1.4)
+        return total_power
+
     def calc_total_latency(self):
-        for t in self.tasks:
-            latency = [t.start_time - t.arrive_time]
+        latency = [t.start_time - t.arrive_time for t in self.tasks]
         for i in range(1, len(latency)):
             latency[i] = latency[i] + latency[i - 1]
         return np.sum(latency)
-    
-    # def calc_total_latency(self):
-    #     latency = [t.start_time - t.arrive_time for t in self.tasks]
-    #     cumulative_latency = np.cumsum(latency)
-    #     return cumulative_latency[-1]
-    
-    def sample_action(self):
-        rand_machine = random.randint(0, self.n_machines-1)
-        return rand_machine
-    
+
+    def render(self, mode="human"):
+        """
+        Render the environment. Not implemented.
+        """
+        pass
+
+    def close(self):
+        """
+        Clean up resources.
+        """
+        pass
+
 class Task(object):
     def __init__(self, name, start_time, end_time, plan_cpu, plan_mem):
         self.name = name
@@ -273,17 +292,14 @@ class Task(object):
         self.plan_cpu = plan_cpu
         self.plan_mem = plan_mem
         self.start_time = self.arrive_time
+        self.end_time = end_time
 
     def start(self, start_time):
         self.start_time = start_time
         self.end_time = start_time + self.last_time
-    """
-    def done(self, cur_time):
-        return cur_time >= self.start_time + self.last_time
-    """
-    def __lt__(self, other):
-        return self.start_time + self.last_time < other.start_time + other.last_time
 
+    def __lt__(self, other):
+        return self.end_time < other.end_time
 
 class Machine():
     def __init__(self, cpu_num, mem_size, machine_id):
@@ -308,7 +324,6 @@ class Machine():
         self.w = 0.5
         self.power_usage = 0
         self.last_arrive_time = 0
-        
 
     def cpu(self):
         return 1 - self.cpu_idle / self.cpu_num
@@ -316,26 +331,18 @@ class Machine():
     def add_task(self, task):
         self.pending_queue.append(task)
         if self.state == 'sleeping':
-                self.try_to_wake_up(task)
+            self.try_to_wake_up(task)
         self.process_pending_queue()
 
     def process_running_queue(self, cur_time):
-        """
-        Process running queue, return whether we should process running queue or not
-        We should process running queue first if it's not empty and any of these conditions holds:
-        1. Pending queue is empty
-        2. The first task in pending queue cannot be executed for the lack of resources (cpu or memory)
-        3. The first task in pending queue arrives after any task in the running queue finishes
-        """
-
         if self.is_empty(self.running_queue):
             return False
         if self.running_queue[0].end_time > cur_time:
             return False
 
         if self.is_empty(self.pending_queue) or \
-            not self.enough_resource(self.pending_queue[0]) or \
-            self.running_queue[0].end_time <= self.pending_queue[0].arrive_time:
+                not self.enough_resource(self.pending_queue[0]) or \
+                self.running_queue[0].end_time <= self.pending_queue[0].arrive_time:
 
             task = heapq.heappop(self.running_queue)
             self.state = 'active'
@@ -351,21 +358,13 @@ class Machine():
         return False
 
     def process_pending_queue(self):
-        """
-        We should process pending queue first if it's not empty and
-        the server has enough resources (cpu and memory) for the first task in the pending queue to run and
-        any of these following conditions holds:
-        1. Running queue is empty
-        2. The first task in the pending queue arrives before all tasks in the running queue finishes
-        """
-
         if self.is_empty(self.pending_queue):
             return False
         if not self.enough_resource(self.pending_queue[0]):
             return False
 
         if self.is_empty(self.running_queue) or \
-            self.pending_queue[0].arrive_time < self.running_queue[0].end_time:
+                self.pending_queue[0].arrive_time < self.running_queue[0].end_time:
 
             task = self.pending_queue.popleft()
             task.start(self.cur_time)
@@ -378,18 +377,13 @@ class Machine():
         return False
 
     def process(self, cur_time):
-        
-        """
-        keep running simulation until current time
-        """
-
-        if self.cur_time == 0:  ## the first time, no task has come before
+        if self.cur_time == 0:
             self.cur_time = cur_time
             return
-        if self.awake_time > cur_time:  ## will not be waken at cur_time
+        if self.awake_time > cur_time:
             self.cur_time = cur_time
             return
-        if self.awake_time > self.cur_time:  ## jump to self.awake_time
+        if self.awake_time > self.cur_time:
             self.cur_time = self.awake_time
             self.state = 'waken'
 
@@ -403,14 +397,15 @@ class Machine():
 
     def is_empty(self, queue):
         return len(queue) == 0
-    
+
     def calc_power(self, cur_time):
         if self.state == 'sleeping':
             return 0
         else:
             cpu = self.cpu()
-            return (self.P_0 + (self.P_100 - self.P_0) * (2*cpu - cpu**1.4)) * (cur_time - self.cur_time)
+            return (self.P_0 + (self.P_100 - self.P_0) * (2 * cpu - cpu ** 1.4)) * (cur_time - self.cur_time)
 
     def try_to_wake_up(self, task):
-        if (self.awake_time > task.arrive_time + self.T_on):
+        if self.awake_time > task.arrive_time + self.T_on:
             self.awake_time = task.arrive_time + self.T_on
+

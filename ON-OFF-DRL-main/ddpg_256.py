@@ -106,9 +106,9 @@ def onehot_action(prob):
     return y.to(torch.long)
 
 def gumbel_softmax(prob,temperature=1.0,hard=False):
-    # print(prob)
-    logits=torch.log(prob)
+    print(prob)
     seed=torch.FloatTensor(logits.shape).uniform_().to(device)
+    logits=torch.log(prob)
     logits=logits-torch.log(-torch.log(seed+eps)+eps) # gumbel sampling
     y = torch.nn.functional.softmax(logits/temperature,dim=1)
     if hard==True:   #one hot but differenttiable
@@ -345,6 +345,7 @@ while time_step <= max_training_timesteps:
     
     for step in range(max_ep_len):
         action, _ = ddpg.choose_action(state, 0.1)  
+        print(f"State: {state}, Action: {action}")
         next_state, reward, done, _ = env.step(action)  
         
         current_ep_reward += reward
@@ -353,9 +354,9 @@ while time_step <= max_training_timesteps:
         sleep(0.1) # we sleep to read the reward in console
         
         transition = [state, reward, action, next_state, done]
-        # print(state)
-        # print(next_state)
-        # print(transition)
+        print(state)
+        print(next_state)
+        print(transition)
         ddpg.memory.store(transition)
 
         if len(ddpg.memory) < batch_size:
