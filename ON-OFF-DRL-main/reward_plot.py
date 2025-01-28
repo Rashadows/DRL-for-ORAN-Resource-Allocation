@@ -22,10 +22,11 @@ def step_plot():
 
     algorithms = {
         "ACER": "green",
-        "PPO": "red",
-        "TD3": "blue",
-        "DDPG": "purple",
-        "DDPG2": "yellow"
+        "PPO": "black",
+        "DQN_GPT": "blue",
+        "DQN_DS": "purple",
+        "TD3": "red", 
+        "TD3_DS": "yellow"
     }
 
     ax = plt.gca()
@@ -37,7 +38,7 @@ def step_plot():
         all_runs = []
         
         for run_num in range(num_runs):
-            log_f_name = f"{log_dir}/{algo}_resource_allocation_log_{run_num}.csv"
+            log_f_name = f"{log_dir}/{algo.split('_')[0]}_resource_allocation_log_{run_num}.csv"
             print(f"loading data from: {log_f_name}")
             data = pd.read_csv(log_f_name)
             all_runs.append(data)
@@ -75,10 +76,11 @@ def episode_plot():
 
     algorithms = {
         "ACER": "green",
-        "PPO": "red",
-        "TD3": "blue",
-        "DDPG": "purple", 
-        "DDPG2": "yellow"
+        "PPO": "black",
+        "DQN_GPT": "blue",
+        "DQN_DS": "purple",
+        "TD3": "red", 
+        "TD3_DS": "yellow"
     }
 
     ax = plt.gca()
@@ -90,7 +92,7 @@ def episode_plot():
         all_runs = []
         
         for run_num in range(num_runs):
-            log_f_name = f"{log_dir}/{algo}_resource_allocation_log_{run_num}.csv"
+            log_f_name = f"{log_dir}/{algo.split('_')[0]}_resource_allocation_log_{run_num}.csv"
             print(f"loading data from: {log_f_name}")
             data = pd.read_csv(log_f_name)
             all_runs.append(data)

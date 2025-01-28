@@ -101,14 +101,14 @@ print("setting training environment : ")
 
 max_ep_len = 225            # max timesteps in one episode
 gamma = 0.99                # discount factor
-lr = 0.0003                 # learning rate
+lr = 0.00001                 # learning rate
 random_seed = 0             # set random seed
 max_training_timesteps = 100000   # break from training loop if timeteps > max_training_timesteps
 print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4         # save model frequency (in num timesteps)
-capacity = 10000
-batch_size = 128
+capacity = 50000
+batch_size = 32
 target_update_freq = 1000     # update target network every ... timesteps
 epsilon_start = 1.0
 epsilon_final = 0.01

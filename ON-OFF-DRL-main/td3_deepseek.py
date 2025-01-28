@@ -75,21 +75,21 @@ class Critic(nn.Module):
         return x
 
 class TD3:
-    def __init__(self, state_dim, action_dim, hidden_size=256, gamma=0.99, tau=0.005, policy_noise=0.2, noise_clip=0.5, policy_freq=2):
+    def __init__(self, state_dim, action_dim, hidden_size=256, gamma=0.95, tau=0.005, policy_noise=0.2, noise_clip=0.5, policy_freq=4):
         self.actor = Actor(state_dim, action_dim, hidden_size).to(device)
         self.actor_target = Actor(state_dim, action_dim, hidden_size).to(device)
         self.actor_target.load_state_dict(self.actor.state_dict())
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
 
         self.critic1 = Critic(state_dim, action_dim, hidden_size).to(device)
         self.critic1_target = Critic(state_dim, action_dim, hidden_size).to(device)
         self.critic1_target.load_state_dict(self.critic1.state_dict())
-        self.critic1_optimizer = optim.Adam(self.critic1.parameters(), lr=3e-4)
+        self.critic1_optimizer = optim.Adam(self.critic1.parameters(), lr=1e-3)
 
         self.critic2 = Critic(state_dim, action_dim, hidden_size).to(device)
         self.critic2_target = Critic(state_dim, action_dim, hidden_size).to(device)
         self.critic2_target.load_state_dict(self.critic2.state_dict())
-        self.critic2_optimizer = optim.Adam(self.critic2.parameters(), lr=3e-4)
+        self.critic2_optimizer = optim.Adam(self.critic2.parameters(), lr=1e-3)
 
         self.gamma = gamma
         self.tau = tau
@@ -187,13 +187,13 @@ class TD3:
 print("setting training environment : ")
 
 max_ep_len = 225            # max timesteps in one episode
-gamma = 0.99                # discount factor
+gamma = 0.95                # discount factor
 random_seed = 0             # set random seed
 max_training_timesteps = 100000   # break from training loop if timeteps > max_training_timesteps
 print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4         # save model frequency (in num timesteps)
-capacity = 10000
+capacity = 100000
 batch_size = 128
 
 env = Env()
