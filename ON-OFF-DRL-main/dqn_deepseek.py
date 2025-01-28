@@ -60,7 +60,7 @@ class DQN(nn.Module):
     def forward(self, x):
         return self.network(x)
 
-def compute_dqn_loss(batch, model, target_model, gamma=0.99):
+def compute_dqn_loss(batch, model, target_model, gamma=0.95):
     state, action, reward, next_state, done = zip(*batch)
     
     state = torch.FloatTensor(np.array(state)).to(device)
@@ -98,15 +98,15 @@ print("=========================================================================
 print("setting training environment : ")
 
 max_ep_len = 225            # max timesteps in one episode
-gamma = 0.99                # discount factor
-lr = 0.0003                 # learning rate
+gamma = 0.95                # discount factor
+lr = 0.00001                 # learning rate
 random_seed = 0             # set random seed
 max_training_timesteps = 100000   # break from training loop if timeteps > max_training_timesteps
 print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4         # save model frequency (in num timesteps)
-capacity = 10000
-batch_size = 128
+capacity = 50000
+batch_size = 32
 
 env=Env()
 

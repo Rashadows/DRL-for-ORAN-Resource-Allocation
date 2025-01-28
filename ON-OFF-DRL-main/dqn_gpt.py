@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 ############################### Import libraries ###############################
 
-"""
-Script to train DQN with 256 hidden units
-Based on your ACER code
-"""
 import os
 from datetime import datetime
 from collections import deque
