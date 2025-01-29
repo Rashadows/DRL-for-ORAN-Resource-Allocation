@@ -112,7 +112,7 @@ batch_size = 32
 target_update_freq = 1000     # update target network every ... timesteps
 epsilon_start = 1.0
 epsilon_final = 0.01
-epsilon_decay = 10000
+epsilon_decay = 5000
 tau = 0.005
 
 env=Env()
