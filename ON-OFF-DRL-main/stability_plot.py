@@ -30,8 +30,8 @@ algorithms = {
         'marker': '^',
         'legend_prefix': 'PPO'
     },
-    'DQN': {
-        'file_dir': 'DQN_files',
+    'Double_DQN': {
+        'file_dir': 'Double_DQN_files',
         'marker': 's',
         'legend_prefix': 'DQN'
     },
