@@ -101,18 +101,19 @@ print("setting training environment : ")
 
 max_ep_len = 225            # max timesteps in one episode
 gamma = 0.99                # discount factor
-lr = 0.00001                 # learning rate
+lr = 0.0001                 # learning rate
 random_seed = 0             # set random seed
 max_training_timesteps = 100000   # break from training loop if timeteps > max_training_timesteps
 print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4         # save model frequency (in num timesteps)
-capacity = 50000
+capacity = 100000
 batch_size = 32
 target_update_freq = 1000     # update target network every ... timesteps
 epsilon_start = 1.0
 epsilon_final = 0.01
-epsilon_decay = 5000
+epsilon_decay = 10000
+tau = 0.005
 
 env=Env()
 
@@ -279,10 +280,10 @@ while time_step <= max_training_timesteps:
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        
-        # Update the target network
-        if time_step % target_update_freq == 0:
-            target_net.load_state_dict(online_net.state_dict())
+
+        # Soft update target network
+        for target_param, online_param in zip(target_net.parameters(), online_net.parameters()):
+            target_param.data.copy_(tau * online_param.data + (1.0 - tau) * target_param.data)
         
         # log in logging file
         if time_step % log_freq == 0:
