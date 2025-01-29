@@ -11,7 +11,6 @@ import numpy as np
 import torch.optim as optim
 from env import Env
 from argparser import args
-from time import sleep
 
 ################################## set device to cpu or cuda ##################################
 
@@ -21,7 +20,7 @@ print("=========================================================================
 device = torch.device('cpu')
 
 if(torch.cuda.is_available()): 
-    device = torch.device('cuda:0') 
+    device = torch.device('cuda:1') 
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
@@ -42,7 +41,7 @@ def weights_init(m):
 ################################## Define TD3 Networks ##################################
 
 class ReplayBuffer(object):
-    def __init__(self, max_size=1e6):
+    def __init__(self, max_size):
         self.storage = []
         self.max_size = int(max_size)
         self.ptr = 0
@@ -138,6 +137,9 @@ def td3_update(batch_size):
     with torch.no_grad():
         # Target Actor: Get action logits and convert to probabilities
         next_action_logits = actor_target(next_state)
+        noise = (torch.randn_like(next_action_logits) * policy_noise).clamp(-noise_clip, noise_clip)
+        next_action_logits = next_action_logits + noise
+
         next_action_probs = F.softmax(next_action_logits, dim=1)
         action_dist = torch.distributions.Categorical(next_action_probs)
         next_action_discrete = action_dist.sample()
@@ -207,6 +209,7 @@ print("=========================================================================
 
 print("setting training environment : ")
 
+capacity = 1e6              # replay buffer size
 max_ep_len = 225            # max timesteps in one episode
 gamma = 0.99                # discount factor
 lr_actor = 0.0003           # learning rate for actor network
@@ -335,7 +338,7 @@ critic_target.load_state_dict(critic.state_dict())
 actor_optimizer = optim.Adam(actor.parameters(), lr=lr_actor)
 critic_optimizer = optim.Adam(critic.parameters(), lr=lr_critic)
 
-replay_buffer = ReplayBuffer()
+replay_buffer = ReplayBuffer(capacity)
 
 start_time = datetime.now().replace(microsecond=0)
 print("Started training at (GMT) : ", start_time)
@@ -362,7 +365,6 @@ policy_iteration_step = 0
 # start training loop
 while time_step <= max_training_timesteps:
     print("New training episode:")
-    sleep(0.1) # we sleep to read the reward in console
     state = env.reset()
     current_ep_reward = 0
 
@@ -370,7 +372,9 @@ while time_step <= max_training_timesteps:
         # select action with policy
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
         logits = actor(state_tensor)  # Get action logits from Actor
-        action_probs = F.softmax(logits, dim=1)  # Convert logits to probabilities
+        noise = torch.normal(mean=0.0, std=exploration_noise, size=logits.size()).to(device)
+        noisy_logits = logits + noise
+        action_probs = F.softmax(noisy_logits, dim=1)  # Convert logits to probabilities
 
         # Sample action index from the probability distribution
         action_dist = torch.distributions.Categorical(action_probs)
@@ -381,7 +385,6 @@ while time_step <= max_training_timesteps:
         time_step += 1
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
-        sleep(0.1) # we sleep to read the reward in console
 
         # One-hot encode the discrete action for the Critic
         action_one_hot = np.zeros(action_dim, dtype=np.float32)
@@ -405,7 +408,6 @@ while time_step <= max_training_timesteps:
             log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f2.flush()
             print("Saving reward to csv file")
-            sleep(0.1) # we sleep to read the reward in console
             log_running_reward = 0
             log_running_episodes = 0
 
@@ -417,7 +419,6 @@ while time_step <= max_training_timesteps:
             print_avg_reward = round(print_avg_reward, 2)
 
             print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
-            sleep(0.1) # we sleep to read the reward in console
             print_running_reward = 0
             print_running_episodes = 0
 
@@ -425,7 +426,6 @@ while time_step <= max_training_timesteps:
         if time_step % save_model_freq == 0:
             print("--------------------------------------------------------------------------------------------")
             print("saving model at : " + checkpoint_path)
-            sleep(0.1) # we sleep to read the reward in console
             torch.save({
                 'actor_state_dict': actor.state_dict(),
                 'critic_state_dict': critic.state_dict(),

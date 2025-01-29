@@ -9,8 +9,8 @@ import torch.nn as nn
 import random
 import numpy as np
 import torch.optim as optim
-from env import Env
-from argparser import args
+from env import Env  # Ensure you have this file with the Env class defined
+from argparser import args  # Ensure you have this file with argument parsing
 from time import sleep
 
 ################################## set device to cpu or cuda ##################################
@@ -20,7 +20,7 @@ print("=========================================================================
 # set device to cpu or cuda
 device = torch.device('cpu')
 
-if(torch.cuda.is_available()):
+if torch.cuda.is_available():
     device = torch.device('cuda:0')
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
@@ -57,6 +57,7 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.layers = nn.Sequential(
             nn.Linear(num_inputs, hidden_size),
+            nn.LayerNorm(hidden_size),    # Replaced BatchNorm1d with LayerNorm
             nn.ReLU(),
             nn.Linear(hidden_size, num_actions)
         )
@@ -94,8 +95,7 @@ def compute_double_dqn_loss(batch, online_net, target_net, gamma, device):
 
 print("============================================================================================")
 
-
-################################### Training Double DQN ###################################
+################################### Training Double DQN with Enhancements ###################################
 
 ####### initialize environment hyperparameters and Double DQN hyperparameters ######
 
@@ -103,19 +103,23 @@ print("setting training environment : ")
 
 max_ep_len = 225            # max timesteps in one episode
 gamma = 0.99                # discount factor
-lr = 0.0001                 # learning rate
+lr = 0.0001                 # initial learning rate
 random_seed = 0             # set random seed
-max_training_timesteps = 100000   # break from training loop if timeteps > max_training_timesteps
-print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
-log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
-save_model_freq = max_ep_len * 4         # save model frequency (in num timesteps)
+max_training_timesteps = 100000   # break from training loop if timesteps > max_training_timesteps
+print_freq = max_ep_len * 4        # print avg reward in the interval (in num timesteps)
+log_freq = max_ep_len * 2          # saving avg reward in the interval (in num timesteps)
+save_model_freq = max_ep_len * 4    # save model frequency (in num timesteps)
 capacity = 100000
-batch_size = 32
+batch_size = 128
 target_update_freq = 1000     # update target network every ... timesteps
 epsilon_start = 1.0
 epsilon_final = 0.01
-epsilon_decay = 5000
+epsilon_decay = 10000
 tau = 0.005
+
+# Learning Rate Scheduler parameters
+step_size = 25000         # Decay LR every 25,000 steps
+gamma_scheduler = 0.3    # Decay LR by a factor of 0.5
 
 env = Env()
 
@@ -135,11 +139,11 @@ log_dir = "Double_DQN_files"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
-log_dir_1 = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
+log_dir_1 = os.path.join(log_dir, 'resource_allocation', 'stability')
 if not os.path.exists(log_dir_1):
     os.makedirs(log_dir_1)
 
-log_dir_2 = log_dir + '/' + 'resource_allocation' + '/' + 'reward' + '/'
+log_dir_2 = os.path.join(log_dir, 'resource_allocation', 'reward')
 if not os.path.exists(log_dir_2):
     os.makedirs(log_dir_2)
 
@@ -153,8 +157,8 @@ run_num2 = len(current_num_files2)
 
 
 #### create new saving file for each run
-log_f_name = log_dir_1 + '/Double_DQN_' + 'resource_allocation' + "_log_" + str(run_num1) + ".csv"
-log_f_name2 = log_dir_2 + '/Double_DQN_' + 'resource_allocation' + "_log_" + str(run_num2) + ".csv"
+log_f_name = os.path.join(log_dir_1, f'Double_DQN_resource_allocation_log_{run_num1}.csv')
+log_f_name2 = os.path.join(log_dir_2, f'Double_DQN_resource_allocation_log_{run_num2}.csv')
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)
@@ -169,16 +173,15 @@ directory = "Double_DQN_preTrained"
 if not os.path.exists(directory):
     os.makedirs(directory)
 
-directory = directory + '/' + 'resource_allocation' + '/'
+directory = os.path.join(directory, 'resource_allocation')
 if not os.path.exists(directory):
     os.makedirs(directory)
 
 
-checkpoint_path = directory + "Double_DQN{}_{}_{}_{}.pth".format(NN_size, 'resource_allocation', random_seed, run_num_pretrained)
+checkpoint_path = os.path.join(directory, f"Double_DQN{NN_size}_resource_allocation_{random_seed}_{run_num_pretrained}.pth")
 print("save checkpoint path : " + checkpoint_path)
 
 #####################################################
-
 
 ############# print all hyperparameters #############
 
@@ -221,6 +224,7 @@ target_net = QNetwork(state_dim, action_dim).to(device)
 target_net.load_state_dict(online_net.state_dict())
 
 optimizer = optim.Adam(online_net.parameters(), lr=lr)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma_scheduler)  # Initialize LR Scheduler
 replay_buffer = ReplayMemory(capacity)
 
 start_time = datetime.now().replace(microsecond=0)
@@ -245,6 +249,11 @@ log_running_episodes = 0
 time_step = 0
 i_episode = 0
 
+# Function to get current learning rate
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
 # start training loop
 while time_step <= max_training_timesteps:
     print("New training episode:")
@@ -258,9 +267,11 @@ while time_step <= max_training_timesteps:
         if random.random() < epsilon:
             action = torch.tensor([[random.randrange(action_dim)]], dtype=torch.long).to(device)
         else:
-            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
-            q_values = online_net(state_tensor)
-            action = q_values.max(1)[1].view(1, 1)
+            # Action selection with LayerNorm (no issues with batch size =1)
+            with torch.no_grad():
+                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
+                q_values = online_net(state_tensor)
+                action = q_values.max(1)[1].view(1, 1)
 
         next_state, reward, done, info = env.step(action.item())
         time_step += 1
@@ -281,7 +292,16 @@ while time_step <= max_training_timesteps:
             loss = compute_double_dqn_loss(batch, online_net, target_net, gamma, device)
             optimizer.zero_grad()
             loss.backward()
+
+            # Apply Gradient Clipping
+            torch.nn.utils.clip_grad_norm_(online_net.parameters(), max_norm=1.0)
+
             optimizer.step()
+            scheduler.step()  # Step the scheduler after each optimizer.step()
+
+            # Optional: Print the current learning rate
+            current_lr = get_lr(optimizer)
+            print(f"Current Learning Rate: {current_lr}")
 
         # Soft update target network
         for target_param, online_param in zip(target_net.parameters(), online_net.parameters()):
@@ -320,7 +340,13 @@ while time_step <= max_training_timesteps:
             print("--------------------------------------------------------------------------------------------")
             print("saving model at : " + checkpoint_path)
             sleep(0.1)  # we sleep to read the reward in console
-            torch.save(online_net.state_dict(), checkpoint_path)
+            torch.save({
+                'model_state_dict': online_net.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'time_step': time_step,
+                'episode': i_episode
+            }, checkpoint_path)
             print("model saved")
             print("--------------------------------------------------------------------------------------------")
 

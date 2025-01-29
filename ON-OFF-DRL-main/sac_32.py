@@ -12,7 +12,6 @@ import numpy as np
 import torch.optim as optim
 from env import Env
 from argparser import args
-from time import sleep
 
 ################################## Set device to CPU or CUDA ##################################
 
@@ -292,7 +291,6 @@ i_episode = 0
 # Start training loop
 while time_step <= max_training_timesteps:
     print("New training episode:")
-    sleep(0.1)  # We sleep to read the reward in console
     state = env.reset()
     current_ep_reward = 0
 
@@ -306,7 +304,6 @@ while time_step <= max_training_timesteps:
         time_step += 1
         current_ep_reward += reward
         print(f"The current total episodic reward at timestep {time_step} is: {current_ep_reward}")
-        sleep(0.1)  # We sleep to read the reward in console
 
         reward_tensor = torch.FloatTensor([[reward]]).to(device)
         next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0).to(device)
@@ -341,7 +338,6 @@ while time_step <= max_training_timesteps:
                 log_f2.write(f'{i_episode},{time_step},{log_avg_reward}\n')
                 log_f2.flush()
                 print("Saving reward to csv file")
-                sleep(0.1)  # We sleep to read the reward in console
 
                 log_running_reward = 0
                 log_running_episodes = 0
@@ -353,7 +349,6 @@ while time_step <= max_training_timesteps:
                 print_avg_reward = print_running_reward / print_running_episodes
                 print_avg_reward = round(print_avg_reward, 2)
                 print(f"Episode: {i_episode} \t\t Timestep: {time_step} \t\t Average Reward: {print_avg_reward}")
-                sleep(0.1)  # We sleep to read the reward in console
 
                 print_running_reward = 0
                 print_running_episodes = 0
@@ -362,7 +357,6 @@ while time_step <= max_training_timesteps:
         if time_step % save_model_freq == 0:
             print("--------------------------------------------------------------------------------------------")
             print(f"Saving model at: {checkpoint_path}")
-            sleep(0.1)  # We sleep to read the reward in console
             torch.save(model.state_dict(), checkpoint_path)
             print("Model saved")
             print("--------------------------------------------------------------------------------------------")
