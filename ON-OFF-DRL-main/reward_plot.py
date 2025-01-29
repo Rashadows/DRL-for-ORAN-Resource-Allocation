@@ -23,10 +23,12 @@ def step_plot():
     algorithms = {
         "ACER": "green",
         "PPO": "black",
-        "DQN_GPT": "blue",
+        "DQN_GPT": "magenta",
         "DQN_DS": "purple",
-        "TD3": "red", 
-        "TD3_DS": "yellow"
+        "TD3_GPT": "red", 
+        "TD3_DS": "yellow",
+        "SAC_GPT": "blue",
+        "SAC_DS": "cyan"
     }
 
     ax = plt.gca()
@@ -77,10 +79,12 @@ def episode_plot():
     algorithms = {
         "ACER": "green",
         "PPO": "black",
-        "DQN_GPT": "blue",
+        "DQN_GPT": "magenta",
         "DQN_DS": "purple",
-        "TD3": "red", 
-        "TD3_DS": "yellow"
+        "TD3_GPT": "red", 
+        "TD3_DS": "yellow",
+        "SAC_GPT": "blue",
+        "SAC_DS": "cyan"
     }
 
     ax = plt.gca()

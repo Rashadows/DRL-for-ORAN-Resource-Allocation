@@ -66,62 +66,6 @@ class QNetwork(nn.Module):
         x = self.linear3(x)
         return x
 
-class ValueNetwork(nn.Module):
-    def __init__(self, num_inputs, hidden_size=256):
-        super(ValueNetwork, self).__init__()
-        
-        self.linear1 = nn.Linear(num_inputs, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, hidden_size)
-        self.linear3 = nn.Linear(hidden_size, 1)
-        
-    def forward(self, state):
-        x = F.relu(self.linear1(state))
-        x = F.relu(self.linear2(x))
-        x = self.linear3(x)
-        return x
-
-class PolicyNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_size=256):
-        super(PolicyNetwork, self).__init__()
-        
-        self.linear1 = nn.Linear(num_inputs, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, hidden_size)
-        self.linear3 = nn.Linear(hidden_size, num_actions)
-        
-    def forward(self, state):
-        x = F.relu(self.linear1(state))
-        x = F.relu(self.linear2(x))
-        x = F.softmax(self.linear3(x), dim=-1)
-        return x
-
-# Initialize environment
-env = Env()
-
-# State space dimension
-state_dim = args.n_servers * args.n_resources + args.n_resources + 1
-
-# Action space dimension
-action_dim = args.n_servers
-
-# Define main Q-networks
-q1 = QNetwork(state_dim, action_dim).to(device)
-q2 = QNetwork(state_dim, action_dim).to(device)
-
-# Define target Q-networks
-q1_target = QNetwork(state_dim, action_dim).to(device)
-q2_target = QNetwork(state_dim, action_dim).to(device)
-
-# Initialize target networks with the same weights as the main Q-networks
-q1_target.load_state_dict(q1.state_dict())
-q2_target.load_state_dict(q2.state_dict())
-
-# Soft update function
-def soft_update(target, source, tau=0.005):
-    for target_param, param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
-
-# Update compute_sac_loss function
-
 # Update the compute_sac_loss function to handle input shapes correctly
 def compute_sac_loss(policy, q1, q2, value, target_value, states, actions, rewards, next_states, dones, gamma=0.99, alpha=0.2):
     with torch.no_grad():

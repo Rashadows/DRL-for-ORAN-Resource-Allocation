@@ -97,15 +97,16 @@ print("=========================================================================
 print("setting training environment : ")
 
 max_ep_len = 225  # max timesteps in one episode
-gamma = 0.95  # discount factor
-lr = 0.0003  # learning rate
+gamma = 0.9  # discount factor
+lr = 0.001  # learning rate
 random_seed = 0  # set random seed
 max_training_timesteps = 100000  # break from training loop if timeteps > max_training_timesteps
 print_freq = max_ep_len * 4  # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2  # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4  # save model frequency (in num timesteps)
 capacity = 50000
-batch_size = 32
+batch_size = 128
+target_update = 100
 
 env = Env()
 
@@ -298,7 +299,7 @@ while time_step <= max_training_timesteps:
         loss = compute_dqn_loss(batch, model, target_model)
         scheduler.step()  # Update the learning rate scheduler
 
-    if time_step % 1000 == 0:
+    if time_step % target_update == 0:
         update_target_model(model, target_model)
 
     print_running_reward += current_ep_reward

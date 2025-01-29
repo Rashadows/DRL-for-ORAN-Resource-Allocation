@@ -3,7 +3,7 @@
 
 """
 Script to train TD3 with 256 hidden units
-TD3 code adapted for discrete action space
+TD3 code adapted for discrete action space with weight initialization and softmax action selection
 """
 
 import os
@@ -35,7 +35,16 @@ else:
 print("============================================================================================")
 
 
+################################## Define Weight Initialization ##################################
+
+def weights_init(m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+
 ################################## Define TD3 Networks ##################################
+
 class ReplayBuffer(object):
     def __init__(self, max_size=1e6):
         self.storage = []
@@ -43,7 +52,7 @@ class ReplayBuffer(object):
         self.ptr = 0
 
     def push(self, data):
-        # data is a tuple (state, action, next_state, reward, done)
+        # data is a tuple (state, action_one_hot, next_state, reward, done)
         if len(self.storage) == self.max_size:
             self.storage[int(self.ptr)] = data
             self.ptr = (self.ptr + 1) % self.max_size
@@ -62,28 +71,27 @@ class ReplayBuffer(object):
             reward.append(np.asarray(r))
             done.append(np.asarray(d))
 
-        return (np.array(state),
-                np.array(action),
-                np.array(next_state),
-                np.array(reward).reshape(-1,1),
-                np.array(done).reshape(-1,1))
+        return (np.array(state, dtype=np.float32),
+                np.array(action, dtype=np.float32),
+                np.array(next_state, dtype=np.float32),
+                np.array(reward, dtype=np.float32).reshape(-1,1),
+                np.array(done, dtype=np.float32).reshape(-1,1))
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, max_action, hidden_size=256):
+    def __init__(self, state_dim, action_dim, hidden_size=256):
         super(Actor, self).__init__()
         self.actor = nn.Sequential(
             nn.Linear(state_dim, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, action_dim),
-            nn.Tanh()
+            nn.Linear(hidden_size, action_dim)  # Outputs logits for each action
         )
-        self.max_action = max_action
+        self.apply(weights_init)  # Apply weight initialization
 
     def forward(self, x):
-        action = self.actor(x)
-        return action * self.max_action
+        logits = self.actor(x)
+        return logits  # Removed Tanh
 
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_size=256):
@@ -107,6 +115,8 @@ class Critic(nn.Module):
             nn.Linear(hidden_size, 1)
         )
 
+        self.apply(weights_init)  # Apply weight initialization
+
     def forward(self, x, u):
         xu = torch.cat([x, u], 1)
         q1 = self.critic1(xu)
@@ -124,18 +134,24 @@ def td3_update(batch_size):
 
     state, action, next_state, reward, done = replay_buffer.sample(batch_size)
     state = torch.FloatTensor(state).to(device)
-    action = torch.FloatTensor(action).to(device)
+    action = torch.FloatTensor(action).to(device)  # One-hot encoded
     next_state = torch.FloatTensor(next_state).to(device)
     reward = torch.FloatTensor(reward).to(device)
     done = torch.FloatTensor(done).to(device)
 
     with torch.no_grad():
-        # Select action according to policy and add clipped noise
-        noise = (torch.randn_like(action) * policy_noise).clamp(-noise_clip, noise_clip)
-        next_action = (actor_target(next_state) + noise).clamp(-max_action, max_action)
+        # Target Actor: Get action logits and convert to probabilities
+        next_action_logits = actor_target(next_state)
+        next_action_probs = F.softmax(next_action_logits, dim=1)
+        action_dist = torch.distributions.Categorical(next_action_probs)
+        next_action_discrete = action_dist.sample()
+
+        # One-hot encode next actions
+        next_action_one_hot = torch.zeros(batch_size, action_dim).to(device)
+        next_action_one_hot.scatter_(1, next_action_discrete.unsqueeze(1), 1.0)
 
         # Compute the target Q value
-        target_Q1, target_Q2 = critic_target(next_state, next_action)
+        target_Q1, target_Q2 = critic_target(next_state, next_action_one_hot)
         target_Q = torch.min(target_Q1, target_Q2)
         target_Q = reward + ((1 - done) * gamma * target_Q).detach()
 
@@ -154,7 +170,22 @@ def td3_update(batch_size):
     global policy_iteration_step
     if policy_iteration_step % policy_delay == 0:
         # Compute actor loss
-        actor_loss = -critic.Q1(state, actor(state)).mean()
+
+        # Get action logits and compute probabilities
+        action_logits = actor(state)
+        action_probs = F.softmax(action_logits, dim=1)
+
+        # Compute log probabilities
+        log_probs = torch.log(action_probs + 1e-10)  # Adding epsilon for numerical stability
+
+        # Sample actions for computation
+        action_dist = torch.distributions.Categorical(action_probs)
+        sampled_actions = action_dist.sample()
+        sampled_actions_one_hot = torch.zeros(batch_size, action_dim).to(device)
+        sampled_actions_one_hot.scatter_(1, sampled_actions.unsqueeze(1), 1.0)
+
+        # Actor loss is the negative expected Q value
+        actor_loss = -critic.Q1(state, sampled_actions_one_hot).mean()
 
         # Optimize the actor
         actor_optimizer.zero_grad()
@@ -203,9 +234,6 @@ state_dim = args.n_servers * args.n_resources + args.n_resources + 1
 
 # action space dimension
 action_dim = args.n_servers
-
-# Max action value
-max_action = float(action_dim - 1)
 
 ## Note : print/save frequencies should be > than max_ep_len
 
@@ -261,7 +289,6 @@ print("save checkpoint path : " + checkpoint_path)
 
 #####################################################
 
-
 ############# print all hyperparameters #############
 
 print("--------------------------------------------------------------------------------------------")
@@ -296,12 +323,12 @@ random.seed(random_seed)
 #####################################################
 
 print("============================================================================================")
-
+    
 ################# training procedure ################
 
 # Initialize policy and value networks
-actor = Actor(state_dim, action_dim, max_action).to(device)
-actor_target = Actor(state_dim, action_dim, max_action).to(device)
+actor = Actor(state_dim, action_dim).to(device)  # Removed max_action as it's not needed
+actor_target = Actor(state_dim, action_dim).to(device)
 actor_target.load_state_dict(actor.state_dict())
 
 critic = Critic(state_dim, action_dim).to(device)
@@ -318,7 +345,6 @@ start_time = datetime.now().replace(microsecond=0)
 print("Started training at (GMT) : ", start_time)
 
 print("============================================================================================")
-
 
 # logging file
 log_f = open(log_f_name,"w+")
@@ -347,22 +373,26 @@ while time_step <= max_training_timesteps:
     for t in range(1, max_ep_len+1):
         # select action with policy
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
-        action = actor(state_tensor).detach().cpu().numpy()[0]
+        logits = actor(state_tensor)  # Get action logits from Actor
+        action_probs = F.softmax(logits, dim=1)  # Convert logits to probabilities
 
-        # Add exploration noise
-        action = (action + np.random.normal(0, exploration_noise, size=action_dim)).clip(-max_action, max_action)
+        # Sample action index from the probability distribution
+        action_dist = torch.distributions.Categorical(action_probs)
+        action_discrete = action_dist.sample().item()
 
-        # Discretize action for the environment
-        action_discrete = np.argmax(action)
-
+        # Take the action in the environment
         next_state, reward, done, info = env.step(action_discrete)
         time_step += 1
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
         sleep(0.1) # we sleep to read the reward in console
 
+        # One-hot encode the discrete action for the Critic
+        action_one_hot = np.zeros(action_dim, dtype=np.float32)
+        action_one_hot[action_discrete] = 1.0
+
         # Store data in replay buffer
-        replay_buffer.push((state, action, next_state, reward, float(done)))
+        replay_buffer.push((state, action_one_hot, next_state, reward, float(done)))
 
         # TD3 update
         td3_update(batch_size)
@@ -371,7 +401,7 @@ while time_step <= max_training_timesteps:
         if time_step % log_freq == 0:
 
             # log average reward till last episode
-            log_avg_reward = log_running_reward / log_running_episodes
+            log_avg_reward = log_running_reward / log_running_episodes if log_running_episodes > 0 else 0
             log_avg_reward = round(log_avg_reward, 4)
 
             log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
@@ -382,29 +412,30 @@ while time_step <= max_training_timesteps:
             sleep(0.1) # we sleep to read the reward in console
             log_running_reward = 0
             log_running_episodes = 0
-            
+
         # printing average reward
         if time_step % print_freq == 0:
 
             # print average reward till last episode
-            print_avg_reward = print_running_reward / print_running_episodes
+            print_avg_reward = print_running_reward / print_running_episodes if print_running_episodes > 0 else 0
             print_avg_reward = round(print_avg_reward, 2)
-            
+
             print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
             sleep(0.1) # we sleep to read the reward in console
             print_running_reward = 0
             print_running_episodes = 0
-            
+
         # save model weights
         if time_step % save_model_freq == 0:
             print("--------------------------------------------------------------------------------------------")
             print("saving model at : " + checkpoint_path)
             sleep(0.1) # we sleep to read the reward in console
-            torch.save({'actor_state_dict': actor.state_dict(),
-                        'critic_state_dict': critic.state_dict(),
-                        'actor_optimizer_state_dict': actor_optimizer.state_dict(),
-                        'critic_optimizer_state_dict': critic_optimizer.state_dict(),
-                        }, checkpoint_path)
+            torch.save({
+                'actor_state_dict': actor.state_dict(),
+                'critic_state_dict': critic.state_dict(),
+                'actor_optimizer_state_dict': actor_optimizer.state_dict(),
+                'critic_optimizer_state_dict': critic_optimizer.state_dict(),
+                }, checkpoint_path)
             print("model saved")
             print("--------------------------------------------------------------------------------------------")
         state = next_state
@@ -423,3 +454,7 @@ while time_step <= max_training_timesteps:
 
 log_f.close()
 log_f2.close()
+
+################################ End of Part II ################################
+
+print("============================================================================================")
