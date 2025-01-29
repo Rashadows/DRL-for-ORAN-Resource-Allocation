@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 ############################### Import libraries ###############################
 
-"""
-Script to train TD3 with 256 hidden units
-TD3 code adapted for discrete action space with weight initialization and softmax action selection
-"""
-
 import os
 from datetime import datetime
 import torch
@@ -34,6 +29,7 @@ else:
     
 print("============================================================================================")
 
+NN_size = 256
 
 ################################## Define Weight Initialization ##################################
 
@@ -78,7 +74,7 @@ class ReplayBuffer(object):
                 np.array(done, dtype=np.float32).reshape(-1,1))
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_size=256):
+    def __init__(self, state_dim, action_dim, hidden_size=NN_size):
         super(Actor, self).__init__()
         self.actor = nn.Sequential(
             nn.Linear(state_dim, hidden_size),
@@ -94,7 +90,7 @@ class Actor(nn.Module):
         return logits  # Removed Tanh
 
 class Critic(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_size=256):
+    def __init__(self, state_dim, action_dim, hidden_size=NN_size):
         super(Critic, self).__init__()
 
         # Q1 architecture
@@ -205,7 +201,7 @@ def td3_update(batch_size):
 print("============================================================================================")
 
 
-################################### Training TD3 with 256 neurons ###################################
+################################### Training TD3 ###################################
 
 ####### initialize environment hyperparameters and TD3 hyperparameters ######
 
@@ -241,7 +237,7 @@ action_dim = args.n_servers
 
 #### saving files for multiple runs are NOT overwritten
 
-log_dir = "TD3_GPT_files"
+log_dir = "TD3_files"
 if not os.path.exists(log_dir):
       os.makedirs(log_dir)
 
@@ -275,7 +271,7 @@ print("logging at : " + log_f_name)
 
 run_num_pretrained = 0      #### change this to prevent overwriting weights in same env_name folder
 
-directory = "TD3_GPT_preTrained"
+directory = "TD3_preTrained"
 if not os.path.exists(directory):
       os.makedirs(directory)
 
@@ -284,7 +280,7 @@ if not os.path.exists(directory):
       os.makedirs(directory)
 
 
-checkpoint_path = directory + "TD3_{}_{}_{}.pth".format('resource_allocation', random_seed, run_num_pretrained)
+checkpoint_path = directory + "TD3{}_{}_{}_{}.pth".format(NN_size, 'resource_allocation', random_seed, run_num_pretrained)
 print("save checkpoint path : " + checkpoint_path)
 
 #####################################################
