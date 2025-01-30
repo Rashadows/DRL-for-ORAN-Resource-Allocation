@@ -247,23 +247,15 @@ if not os.path.exists(log_dir):
 log_dir_1 = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
 if not os.path.exists(log_dir_1):
       os.makedirs(log_dir_1)
-      
-log_dir_2 = log_dir + '/' + 'resource_allocation' + '/' + 'reward' + '/'
-if not os.path.exists(log_dir_2):
-      os.makedirs(log_dir_2)
 
 
 #### get number of saving files in directory
 run_num = 0
 current_num_files1 = next(os.walk(log_dir_1))[2]
 run_num1 = len(current_num_files1)
-current_num_files2 = next(os.walk(log_dir_2))[2]
-run_num2 = len(current_num_files2)
-
 
 #### create new saving file for each run 
-log_f_name = log_dir_1 + '/TD3_' + 'resource_allocation' + "_log_" + str(run_num1) + ".csv"
-log_f_name2 = log_dir_2 + '/TD3_' + 'resource_allocation' + "_log_" + str(run_num2) + ".csv"
+log_f_name = log_dir_1 + '/TD3_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num1) + ".csv"
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)
@@ -348,8 +340,7 @@ print("=========================================================================
 # logging file
 log_f = open(log_f_name,"w+")
 log_f.write('episode,timestep,reward\n')
-log_f2 = open(log_f_name2,"w+")
-log_f2.write('episode,timestep,reward\n')
+
 
 # printing and logging variables
 print_running_reward = 0
@@ -405,8 +396,6 @@ while time_step <= max_training_timesteps:
 
             log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f.flush()
-            log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
-            log_f2.flush()
             print("Saving reward to csv file")
             log_running_reward = 0
             log_running_episodes = 0
@@ -449,7 +438,6 @@ while time_step <= max_training_timesteps:
     i_episode += 1
 
 log_f.close()
-log_f2.close()
 
 ################################ End of Part II ################################
 

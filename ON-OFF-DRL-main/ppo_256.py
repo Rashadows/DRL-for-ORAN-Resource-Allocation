@@ -254,7 +254,7 @@ run_num = len(current_num_files)
 
 
 #### create new log file for each run 
-log_f_name = log_dir + '/PPO_' + 'resource_allocation' + "_log_" + str(run_num) + ".csv"
+log_f_name = log_dir + '/PPO_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num) + ".csv"
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num)
 print("logging at : " + log_f_name)

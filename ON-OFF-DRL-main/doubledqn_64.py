@@ -20,7 +20,7 @@ print("=========================================================================
 device = torch.device('cpu')
 
 if torch.cuda.is_available():
-    device = torch.device('cuda:1')
+    device = torch.device('cuda:0')
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
@@ -156,8 +156,8 @@ run_num2 = len(current_num_files2)
 
 
 #### create new saving file for each run
-log_f_name = os.path.join(log_dir_1, f'Double_DQN_resource_allocation_log_{run_num1}.csv')
-log_f_name2 = os.path.join(log_dir_2, f'Double_DQN_resource_allocation_log_{run_num2}.csv')
+log_f_name = os.path.join(log_dir_1, f'Double_DQN_{NN_size}_resource_allocation_log_{run_num1}.csv')
+log_f_name2 = os.path.join(log_dir_2, f'Double_DQN_{NN_size}_resource_allocation_log_{run_num2}.csv')
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)

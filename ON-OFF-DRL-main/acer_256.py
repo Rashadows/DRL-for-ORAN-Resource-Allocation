@@ -2,7 +2,6 @@
 ############################### Import libraries ###############################
 
 """
-Script to train ACER with 256 hidden units
 ACER code from https://github.com/higgsfield/RL-Adventure-2
 """
 import os
@@ -32,6 +31,7 @@ else:
     
 print("============================================================================================")
 
+NN_size = 256
 
 ################################## Define ACER Policy ##################################
 
@@ -74,7 +74,7 @@ class EpisodicReplayMemory(object):
         return len(self.buffer)
     
 class ActorCritic(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_size=256):
+    def __init__(self, num_inputs, num_actions, hidden_size=NN_size):
         super(ActorCritic, self).__init__()
         
         self.actor = nn.Sequential(
@@ -154,7 +154,7 @@ def off_policy_update(batch_size, replay_ratio=4):
 print("============================================================================================")
 
 
-################################### Training ACER with 256 neurons###################################
+################################### Training ACER ###################################
 
 ####### initialize environment hyperparameters and ACER hyperparameters ######
 
@@ -206,8 +206,7 @@ run_num2 = len(current_num_files2)
 
 
 #### create new saving file for each run 
-log_f_name = log_dir_1 + '/ACER_' + 'resource_allocation' + "_log_" + str(run_num1) + ".csv"
-log_f_name2 = log_dir_2 + '/ACER_' + 'resource_allocation' + "_log_" + str(run_num2) + ".csv"
+log_f_name = log_dir_1 + '/ACER_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num1) + ".csv"
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)
@@ -227,7 +226,7 @@ if not os.path.exists(directory):
       os.makedirs(directory)
 
 
-checkpoint_path = directory + "ACER256_{}_{}_{}.pth".format('resource_allocation', random_seed, run_num_pretrained)
+checkpoint_path = directory + "ACER{}_{}_{}_{}.pth".format(NN_size, 'resource_allocation', random_seed, run_num_pretrained)
 print("save checkpoint path : " + checkpoint_path)
 
 #####################################################
@@ -283,8 +282,6 @@ print("=========================================================================
 # logging file
 log_f = open(log_f_name,"w+")
 log_f.write('episode,timestep,reward\n')
-log_f2 = open(log_f_name2,"w+")
-log_f2.write('episode,timestep,reward\n')
 
 # printing and logging variables
 print_running_reward = 0
@@ -339,8 +336,6 @@ while time_step <= max_training_timesteps:
 
             log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f.flush()
-            log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
-            log_f2.flush()
             print("Saving reward to csv file")
             log_running_reward = 0
             log_running_episodes = 0
@@ -388,7 +383,6 @@ while time_step <= max_training_timesteps:
     
 
 log_f.close()
-log_f2.close()
 
 ################################ End of Part II ################################
 

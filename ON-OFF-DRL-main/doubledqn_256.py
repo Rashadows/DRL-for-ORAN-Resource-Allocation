@@ -156,8 +156,7 @@ run_num2 = len(current_num_files2)
 
 
 #### create new saving file for each run
-log_f_name = os.path.join(log_dir_1, f'Double_DQN_resource_allocation_log_{run_num1}.csv')
-log_f_name2 = os.path.join(log_dir_2, f'Double_DQN_resource_allocation_log_{run_num2}.csv')
+log_f_name = os.path.join(log_dir_1, f'Double_DQN_{NN_size}_resource_allocation_log_{run_num1}.csv')
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)
@@ -235,8 +234,6 @@ print("=========================================================================
 # logging files
 log_f = open(log_f_name, "w+")
 log_f.write('episode,timestep,reward\n')
-log_f2 = open(log_f_name2, "w+")
-log_f2.write('episode,timestep,reward\n')
 
 # printing and logging variables
 print_running_reward = 0
@@ -313,8 +310,6 @@ while time_step <= max_training_timesteps:
 
                 log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
                 log_f.flush()
-                log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
-                log_f2.flush()
                 print("Saving reward to csv file")
                 log_running_reward = 0
                 log_running_episodes = 0
@@ -359,7 +354,6 @@ while time_step <= max_training_timesteps:
     i_episode += 1
 
 log_f.close()
-log_f2.close()
 
 ################################ End of Part II ################################
 

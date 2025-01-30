@@ -2,7 +2,6 @@
 ############################### Import libraries ###############################
 
 """
-Script to train ACER with 64 hidden units
 ACER code from https://github.com/higgsfield/RL-Adventure-2
 """
 import os
@@ -15,7 +14,6 @@ import numpy as np
 import torch.optim as optim
 from env import Env
 from argparser import args
-from time import sleep
 
 ################################## set device to cpu or cuda ##################################
 
@@ -33,6 +31,7 @@ else:
     
 print("============================================================================================")
 
+NN_size = 64
 
 ################################## Define ACER Policy ##################################
 
@@ -75,7 +74,7 @@ class EpisodicReplayMemory(object):
         return len(self.buffer)
     
 class ActorCritic(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_size=64):
+    def __init__(self, num_inputs, num_actions, hidden_size=NN_size):
         super(ActorCritic, self).__init__()
         
         self.actor = nn.Sequential(
@@ -90,7 +89,6 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_size, num_actions)
         )
-        
         
     def forward(self, x):
         policy  = self.actor(x).clamp(max=1-1e-20)
@@ -156,12 +154,11 @@ def off_policy_update(batch_size, replay_ratio=4):
 print("============================================================================================")
 
 
-################################### Training ACER with 64 neurons###################################
+################################### Training ACER ###################################
 
 ####### initialize environment hyperparameters and ACER hyperparameters ######
 
 print("setting training environment : ")
-
 max_ep_len = 225            # max timesteps in one episode
 gamma = 0.99                # discount factor
 lr_actor = 0.0003       # learning rate for actor network
@@ -172,7 +169,6 @@ print_freq = max_ep_len * 4     # print avg reward in the interval (in num times
 log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4         # save model frequency (in num timesteps)
 capacity = 10000
-max_episode_length = 200
 
 env=Env()
 
@@ -192,22 +188,28 @@ log_dir = "ACER_files"
 if not os.path.exists(log_dir):
       os.makedirs(log_dir)
 
-log_dir = log_dir + '/' + 'resource_allocation' + '/'+ 'stability' + '/'
-if not os.path.exists(log_dir):
-      os.makedirs(log_dir)
+log_dir_1 = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
+if not os.path.exists(log_dir_1):
+      os.makedirs(log_dir_1)
+      
+log_dir_2 = log_dir + '/' + 'resource_allocation' + '/' + 'reward' + '/'
+if not os.path.exists(log_dir_2):
+      os.makedirs(log_dir_2)
 
 
 #### get number of saving files in directory
 run_num = 0
-current_num_files = next(os.walk(log_dir))[2]
-run_num = len(current_num_files)
+current_num_files1 = next(os.walk(log_dir_1))[2]
+run_num1 = len(current_num_files1)
+current_num_files2 = next(os.walk(log_dir_2))[2]
+run_num2 = len(current_num_files2)
 
 
 #### create new saving file for each run 
-log_f_name = log_dir + '/ACER_' + 'resource_allocation' + "_log_" + str(run_num) + ".csv"
+log_f_name = log_dir_1 + '/ACER_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num1) + ".csv"
+log_f_name2 = log_dir_2 + '/ACER_' + str(NN_size) +'_resource_allocation' + "_log_" + str(run_num2) + ".csv"
 
-
-print("current logging run number for " + 'resource_allocation' + " : ", run_num)
+print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)
 
 #####################################################
@@ -225,7 +227,7 @@ if not os.path.exists(directory):
       os.makedirs(directory)
 
 
-checkpoint_path = directory + "ACER64_{}_{}_{}.pth".format('resource_allocation', random_seed, run_num_pretrained)
+checkpoint_path = directory + "ACER{}_{}_{}_{}.pth".format(NN_size, 'resource_allocation', random_seed, run_num_pretrained)
 print("save checkpoint path : " + checkpoint_path)
 
 #####################################################
@@ -236,7 +238,7 @@ print("save checkpoint path : " + checkpoint_path)
 print("--------------------------------------------------------------------------------------------")
 
 print("max training timesteps : ", max_training_timesteps)
-print("max timesteps per episode : ", max_episode_length)
+print("max timesteps per episode : ", max_ep_len)
 
 print("model saving frequency : " + str(save_model_freq) + " timesteps")
 print("log frequency : " + str(log_freq) + " timesteps")
@@ -270,7 +272,7 @@ print("=========================================================================
 
 model = ActorCritic(args.n_servers * args.n_resources + args.n_resources + 1, args.n_servers).to(device)
 optimizer = optim.Adam(model.parameters())
-replay_buffer = EpisodicReplayMemory(capacity, max_episode_length)
+replay_buffer = EpisodicReplayMemory(capacity, max_ep_len)
 
 start_time = datetime.now().replace(microsecond=0)
 print("Started training at (GMT) : ", start_time)
@@ -281,6 +283,8 @@ print("=========================================================================
 # logging file
 log_f = open(log_f_name,"w+")
 log_f.write('episode,timestep,reward\n')
+log_f2 = open(log_f_name2,"w+")
+log_f2.write('episode,timestep,reward\n')
 
 # printing and logging variables
 print_running_reward = 0
@@ -297,7 +301,6 @@ log_interval = 10
 # start training loop
 while time_step <= max_training_timesteps:
     print("New training episode:")
-    sleep(0.1) # we sleep to read the reward in console
     state = env.reset()
     current_ep_reward = 0
     q_values = []
@@ -311,14 +314,11 @@ while time_step <= max_training_timesteps:
         # select action with policy
         state = torch.FloatTensor(state).unsqueeze(0).to(device)
         policy, q_value, value = model(state)
-        
         action = policy.multinomial(1)
-        
         next_state, reward, done, info = env.step(action.item())
         time_step +=1
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
-        sleep(0.1) # we sleep to read the reward in console
         reward = torch.FloatTensor([reward]).unsqueeze(1).to(device)
         mask   = torch.FloatTensor(1 - np.float32([done])).unsqueeze(1).to(device)
         replay_buffer.push(state.detach(), action, reward, policy.detach(), mask, done)
@@ -339,8 +339,9 @@ while time_step <= max_training_timesteps:
 
             log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f.flush()
+            log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
+            log_f2.flush()
             print("Saving reward to csv file")
-            sleep(0.1) # we sleep to read the reward in console
             log_running_reward = 0
             log_running_episodes = 0
             
@@ -352,7 +353,6 @@ while time_step <= max_training_timesteps:
             print_avg_reward = round(print_avg_reward, 2)
             
             print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
-            sleep(0.1) # we sleep to read the reward in console
             print_running_reward = 0
             print_running_episodes = 0
             
@@ -360,7 +360,6 @@ while time_step <= max_training_timesteps:
         if time_step % save_model_freq == 0:
             print("--------------------------------------------------------------------------------------------")
             print("saving model at : " + checkpoint_path)
-            sleep(0.1) # we sleep to read the reward in console
             torch.save(model.state_dict(), checkpoint_path)
             print("model saved")
             print("--------------------------------------------------------------------------------------------")
@@ -376,7 +375,7 @@ while time_step <= max_training_timesteps:
     compute_acer_loss(policies, q_values, values, actions, rewards, retrace, masks, policies)
     
     
-    off_policy_update(128)
+    off_policy_update(batch_size=128)
     
     print_running_reward += current_ep_reward
     print_running_episodes += 1
@@ -389,6 +388,7 @@ while time_step <= max_training_timesteps:
     
 
 log_f.close()
+log_f2.close()
 
 ################################ End of Part II ################################
 

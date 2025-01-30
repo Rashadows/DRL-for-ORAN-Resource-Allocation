@@ -193,11 +193,11 @@ class Env():
         # Normalize the total power consumption
         normalized_power = (total_power - P_min) / (P_max - P_min)
 
-        # Calculate the normalized reward
-        normalized_reward = -normalized_power  # Negative because we aim to minimize power
+        # # Calculate the normalized reward
+        # normalized_reward = -normalized_power  # Negative because we aim to minimize power
 
         # Optionally, if you want a positive reward where higher is better:
-        # normalized_reward = 1 - normalized_power
+        normalized_reward = 1 - normalized_power
 
         # Return the normalized reward
         return normalized_reward

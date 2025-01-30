@@ -7,12 +7,12 @@ from datetime import datetime
 from collections import deque
 import torch
 import torch.nn as nn
+import torch.optim.lr_scheduler as lr_scheduler
 import random
 import numpy as np
 import torch.optim as optim
 from env import Env
 from argparser import args
-from time import sleep
 
 ################################## Set Device to CPU or CUDA ##################################
 
@@ -58,7 +58,7 @@ class ReplayMemory(object):
         return len(self.buffer)
     
 class PolicyNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_size=256):
+    def __init__(self, num_inputs, num_actions, hidden_size=NN_size):
         super(PolicyNetwork, self).__init__()
         self.policy_net = nn.Sequential(
             nn.Linear(num_inputs, hidden_size),
@@ -73,7 +73,7 @@ class PolicyNetwork(nn.Module):
         return log_probs, probs
 
 class QNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_size=256):
+    def __init__(self, num_inputs, num_actions, hidden_size=NN_size):
         super(QNetwork, self).__init__()
         self.q_net = nn.Sequential(
             nn.Linear(num_inputs, hidden_size),
@@ -165,6 +165,7 @@ def off_policy_update(policy_net, q_net1, q_net2, target_q_net1, target_q_net2, 
     q_optimizer.zero_grad()
     q_loss.backward()
     q_optimizer.step()
+    q_scheduler.step()
 
     # --- Update Policy Network and Alpha ---
     log_probs, probs = policy_net(states)
@@ -181,7 +182,9 @@ def off_policy_update(policy_net, q_net1, q_net2, target_q_net1, target_q_net2, 
     alpha_optimizer.zero_grad()
     (policy_loss + alpha_loss).backward()
     policy_optimizer.step()
+    policy_scheduler.step()
     alpha_optimizer.step()
+    alpha_scheduler.step()
 
     # Update alpha after optimizing log_alpha
     alpha = log_alpha.exp().detach()
@@ -224,9 +227,12 @@ log_freq = max_ep_len * 2         # Log avg reward in the interval
 save_model_freq = max_ep_len * 4  # Save model frequency
 capacity = 100000                 # Replay buffer capacity
 batch_size = 256                  # Batch size for updates
-initial_random_steps = 1000       # Initial steps with random policy
+initial_random_steps = 5000       # Initial steps with random policy
 target_entropy = -action_dim      # Target entropy
 tau = 0.005                       # Soft update parameter
+# Scheduler: Decay every step_size timesteps by a factor of gamma_scheduler
+step_size = 10000
+gamma_scheduler = 0.5
 
 
 ## Note: print/save frequencies should be > than max_ep_len
@@ -249,8 +255,7 @@ run_num1 = len(next(os.walk(log_dir_1))[2])
 run_num2 = len(next(os.walk(log_dir_2))[2])
 
 #### Create new saving file for each run
-log_f_name = os.path.join(log_dir_1, f'SAC_resource_allocation_log_{run_num1}.csv')
-log_f_name2 = os.path.join(log_dir_2, f'SAC_resource_allocation_log_{run_num2}.csv')
+log_f_name = os.path.join(log_dir_1, f'SAC_{NN_size}_resource_allocation_log_{run_num1}.csv')
 
 print(f"Current logging run number for resource_allocation: {run_num1}")
 print(f"Logging at: {log_f_name}")
@@ -320,11 +325,14 @@ target_q_net1.load_state_dict(q_net1.state_dict())
 target_q_net2.load_state_dict(q_net2.state_dict())
 
 policy_optimizer = optim.Adam(policy_net.parameters(), lr=lr)
+policy_scheduler = lr_scheduler.StepLR(policy_optimizer, step_size=step_size, gamma=gamma_scheduler)
 q_optimizer = optim.Adam(list(q_net1.parameters()) + list(q_net2.parameters()), lr=lr)
+q_scheduler = lr_scheduler.StepLR(q_optimizer, step_size=step_size, gamma=gamma_scheduler)
 
 # Automatic entropy tuning
 log_alpha = torch.zeros(1, requires_grad=True, device=device)
 alpha_optimizer = optim.Adam([log_alpha], lr=lr_alpha)
+alpha_scheduler = lr_scheduler.StepLR(alpha_optimizer, step_size=step_size, gamma=gamma_scheduler)
 
 alpha = log_alpha.exp().detach()
 
@@ -339,9 +347,6 @@ print("=========================================================================
 log_f = open(log_f_name, "w+")
 log_f.write('episode,timestep,reward\n')
 log_f.flush()
-log_f2 = open(log_f_name2, "w+")
-log_f2.write('episode,timestep,reward\n')
-log_f2.flush()
 
 # Printing and logging variables
 print_running_reward = 0
@@ -399,8 +404,6 @@ while time_step <= max_training_timesteps:
 
             log_f.write(f'{i_episode},{time_step},{log_avg_reward}\n')
             log_f.flush()
-            log_f2.write(f'{i_episode},{time_step},{log_avg_reward}\n')
-            log_f2.flush()
             print("Saving reward to csv file")
             log_running_reward = 0
             log_running_episodes = 0
@@ -448,7 +451,6 @@ while time_step <= max_training_timesteps:
     i_episode += 1
 
 log_f.close()
-log_f2.close()
 
 ################################ End of Part II ################################
 

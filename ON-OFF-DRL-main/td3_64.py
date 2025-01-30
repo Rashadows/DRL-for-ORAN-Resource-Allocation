@@ -262,8 +262,8 @@ run_num2 = len(current_num_files2)
 
 
 #### create new saving file for each run 
-log_f_name = log_dir_1 + '/TD3_' + 'resource_allocation' + "_log_" + str(run_num1) + ".csv"
-log_f_name2 = log_dir_2 + '/TD3_' + 'resource_allocation' + "_log_" + str(run_num2) + ".csv"
+log_f_name = log_dir_1 + '/TD3_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num1) + ".csv"
+log_f_name2 = log_dir_2 + '/TD3_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num2) + ".csv"
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)

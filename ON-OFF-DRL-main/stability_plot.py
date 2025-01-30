@@ -2,6 +2,7 @@
 ############################### Import libraries ###############################
 
 import os
+import re
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -16,7 +17,7 @@ linewidth = 2.5
 alpha = 1
 
 # Common color scheme for all plots
-common_colors = ['red', 'green', 'blue']
+common_colors = ['red', 'green', 'blue', 'orange', 'purple', 'brown']
 
 # Algorithms configuration
 algorithms = {
@@ -60,25 +61,33 @@ def plot_algorithm(alg_name, config, fig_num, colors):
         os.makedirs(log_dir)
         print(f"Created directory: {log_dir}")
 
-    # Count number of log files
+    # Find all CSV files matching the pattern
     try:
-        num_runs = len([f for f in os.listdir(log_dir) if f.endswith('.csv')])
+        files = [f for f in os.listdir(log_dir) if f.endswith('.csv')]
     except FileNotFoundError:
         print(f"No log files found in {log_dir}. Skipping {alg_name}...")
         return
 
-    if num_runs == 0:
+    if not files:
         print(f"No log files found in {log_dir}. Skipping {alg_name}...")
         return
 
-    # Read all runs
+    # Read all runs and extract nnSize
     all_runs = []
-    for run_num in range(num_runs):
-        log_f_name = os.path.join(log_dir, f"{alg_name}_resource_allocation_log_{run_num}.csv")
-        if not os.path.isfile(log_f_name):
-            print(f"Log file {log_f_name} does not exist. Skipping run {run_num}...")
-            continue
+    nn_sizes = []
+    for filename in files:
+        # Check if the file belongs to the current algorithm
+        pattern = rf"^{alg_name}_(\d+)_resource_allocation_log_\d+\.csv$"
+        match = re.match(pattern, filename)
+        if not match:
+            continue  # Skip files that don't match the pattern
+
+        nn_size = match.group(1)
+        nn_sizes.append(nn_size)
+
+        log_f_name = os.path.join(log_dir, filename)
         print(f"Loading data from: {log_f_name}")
+
         data = pd.read_csv(log_f_name)
         all_runs.append(data)
         print("--------------------------------------------------------------------------------------------")
@@ -96,14 +105,12 @@ def plot_algorithm(alg_name, config, fig_num, colors):
     # Plotting
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    for i, run in enumerate(all_runs):
+    for i, (run, nn_size) in enumerate(zip(all_runs, nn_sizes)):
         run['reward_smoothed'] = run['reward'].rolling(
             window=window_len, win_type='triang', min_periods=min_window_len
         ).mean()
 
-        # Determine label based on run number (assuming run_num corresponds to specific configurations)
-        # Adjust the multiplier (e.g., 32, 64, 256) as per your experiment's actual configurations
-        run_label = f"{legend_prefix}_{32 * 2**(2**i-1)}" if i < 3 else f"{legend_prefix}_Run{i+1}"
+        run_label = f"{legend_prefix}_{nn_size}"
 
         ax.plot(
             run['timestep'],
