@@ -20,7 +20,7 @@ print("=========================================================================
 device = torch.device('cpu')
 
 if torch.cuda.is_available():
-    device = torch.device('cuda:1')
+    device = torch.device('cuda:0')
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
@@ -28,7 +28,7 @@ else:
 
 print("============================================================================================")
 
-NN_size = 64
+NN_size =256
 ################################## Define Double DQN Policy ##################################
 
 class ReplayMemory(object):

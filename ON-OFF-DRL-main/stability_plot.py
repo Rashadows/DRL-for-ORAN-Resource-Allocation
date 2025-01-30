@@ -103,7 +103,7 @@ def plot_algorithm(alg_name, config, fig_num, colors):
 
         # Determine label based on run number (assuming run_num corresponds to specific configurations)
         # Adjust the multiplier (e.g., 32, 64, 256) as per your experiment's actual configurations
-        run_label = f"{legend_prefix}_{32 * 2**i}" if i < 3 else f"{legend_prefix}_Run{i+1}"
+        run_label = f"{legend_prefix}_{32 * 2**(2**i-1)}" if i < 3 else f"{legend_prefix}_Run{i+1}"
 
         ax.plot(
             run['timestep'],

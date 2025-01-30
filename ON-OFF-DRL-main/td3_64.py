@@ -20,7 +20,7 @@ print("=========================================================================
 device = torch.device('cpu')
 
 if(torch.cuda.is_available()): 
-    device = torch.device('cuda:0') 
+    device = torch.device('cuda:1') 
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
@@ -137,6 +137,9 @@ def td3_update(batch_size):
     with torch.no_grad():
         # Target Actor: Get action logits and convert to probabilities
         next_action_logits = actor_target(next_state)
+        noise = (torch.randn_like(next_action_logits) * policy_noise).clamp(-noise_clip, noise_clip)
+        next_action_logits = next_action_logits + noise
+
         next_action_probs = F.softmax(next_action_logits, dim=1)
         action_dist = torch.distributions.Categorical(next_action_probs)
         next_action_discrete = action_dist.sample()
@@ -369,7 +372,9 @@ while time_step <= max_training_timesteps:
         # select action with policy
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
         logits = actor(state_tensor)  # Get action logits from Actor
-        action_probs = F.softmax(logits, dim=1)  # Convert logits to probabilities
+        noise = torch.normal(mean=0.0, std=exploration_noise, size=logits.size()).to(device)
+        noisy_logits = logits + noise
+        action_probs = F.softmax(noisy_logits, dim=1)  # Convert logits to probabilities
 
         # Sample action index from the probability distribution
         action_dist = torch.distributions.Categorical(action_probs)
