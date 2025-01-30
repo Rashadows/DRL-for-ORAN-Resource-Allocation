@@ -13,6 +13,7 @@ import numpy as np
 import torch.optim as optim
 from env import Env
 from argparser import args
+from time import sleep
 
 ################################## Set Device to CPU or CUDA ##################################
 
@@ -39,6 +40,8 @@ class ReplayMemory(object):
         self.buffer = deque(maxlen=capacity)
 
     def push(self, state, action, reward, next_state, done):
+        if isinstance(reward, (list, np.ndarray, torch.Tensor)):
+            reward = np.sum(reward)  # or np.mean(reward)
         self.buffer.append((
             torch.FloatTensor(state).to(device),
             torch.LongTensor([action]).to(device),
@@ -55,13 +58,9 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.buffer)
     
-
-
-class ActorCritic(nn.Module):
+class PolicyNetwork(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size=256):
-        super(ActorCritic, self).__init__()
-
-        # Policy Network (outputs log probabilities over actions)
+        super(PolicyNetwork, self).__init__()
         self.policy_net = nn.Sequential(
             nn.Linear(num_inputs, hidden_size),
             nn.ReLU(),
@@ -69,83 +68,133 @@ class ActorCritic(nn.Module):
             nn.LogSoftmax(dim=-1)
         )
 
-        # Q-value Networks
-        self.q_net1 = nn.Sequential(
-            nn.Linear(num_inputs, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, num_actions)
-        )
+    def forward(self, state):
+        log_probs = self.policy_net(state)
+        probs = log_probs.exp()
+        return log_probs, probs
 
-        self.q_net2 = nn.Sequential(
+class QNetwork(nn.Module):
+    def __init__(self, num_inputs, num_actions, hidden_size=256):
+        super(QNetwork, self).__init__()
+        self.q_net = nn.Sequential(
             nn.Linear(num_inputs, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, num_actions)
         )
 
     def forward(self, state):
-        log_probs = self.policy_net(state)
-        probs = log_probs.exp()
-        q_values1 = self.q_net1(state)
-        q_values2 = self.q_net2(state)
-        return log_probs, probs, q_values1, q_values2
+        q_values = self.q_net(state)
+        return q_values
 
-def compute_sac_loss(model, target_q_net1, target_q_net2, batch, alpha, gamma):
+def compute_sac_loss(policy_net, q_net1, q_net2, target_q_net1, target_q_net2,
+                     batch, log_alpha, target_entropy, gamma):
     states, actions, rewards, next_states, dones = batch
 
-    # Get action probabilities and log probabilities
-    log_probs, probs, q_values1, q_values2 = model(states)
+    # Get action probabilities and log probabilities from the policy network
+    log_probs, probs = policy_net(states)
+    alpha = log_alpha.exp().to(device)
 
-    # Gather the Q-values for the actions taken
+    # Compute the Q-values for current states
+    q_values1 = q_net1(states)
+    q_values2 = q_net2(states)
+
+    # Compute Q-function loss
     actions = actions.unsqueeze(-1)
     q_value1 = q_values1.gather(1, actions)
     q_value2 = q_values2.gather(1, actions)
 
     with torch.no_grad():
-        # Next state actions and Q values
-        log_probs_next, probs_next, q1_next, q2_next = model(next_states)
-        min_q_next = torch.min(q1_next, q2_next) - alpha * log_probs_next
+        # Compute target Q-values using the target networks
+        log_probs_next, probs_next = policy_net(next_states)
+        q1_next = target_q_net1(next_states)
+        q2_next = target_q_net2(next_states)
+        min_q_next = torch.min(q1_next, q2_next) - alpha.detach() * log_probs_next
         v_next = (probs_next * min_q_next).sum(dim=1, keepdim=True)
         q_target = rewards.unsqueeze(1) + gamma * (1 - dones.unsqueeze(1)) * v_next
 
-    # Compute Q-function loss
     q_loss1 = nn.MSELoss()(q_value1, q_target)
     q_loss2 = nn.MSELoss()(q_value2, q_target)
+    q_loss = q_loss1 + q_loss2
 
-    # Policy loss
-    min_q = torch.min(q_values1, q_values2)  # [batch_size, num_actions]
+    min_q = torch.min(q_values1, q_values2)
+
+    # Compute policy loss as before
     policy_loss = (probs * (alpha * log_probs - min_q)).sum(dim=1).mean()
+
+    # Compute alpha loss
+    alpha_loss = -(log_alpha * (log_probs + target_entropy).detach()).mean()
 
     # Entropy (for logging)
     entropy = -(log_probs * probs).sum(dim=1).mean()
 
-    total_loss = q_loss1 + q_loss2 + policy_loss
-
-    return total_loss, q_loss1.item(), q_loss2.item(), policy_loss.item(), entropy.item()
+    return q_loss, policy_loss, alpha_loss, entropy
 
 def soft_update(target_net, source_net, tau):
     for target_param, param in zip(target_net.parameters(), source_net.parameters()):
         target_param.data.copy_(
             target_param.data * (1.0 - tau) + param.data * tau
         )
-
-def off_policy_update(model, target_q_net1, target_q_net2, optimizer, replay_buffer, batch_size, alpha, gamma, tau):
+def off_policy_update(policy_net, q_net1, q_net2, target_q_net1, target_q_net2, replay_buffer,
+                     batch_size, log_alpha, alpha_optimizer, target_entropy, gamma, tau):
     if len(replay_buffer) < batch_size:
-        return
-
+        return None  # Not enough samples to update
+    
     batch = replay_buffer.sample(batch_size)
-    loss, q_loss1, q_loss2, policy_loss, entropy = compute_sac_loss(
-        model, target_q_net1, target_q_net2, batch, alpha, gamma
-    )
+    states, actions, rewards, next_states, dones = batch
 
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+    # --- Update Q-networks ---
+    with torch.no_grad():
+        log_probs_next, probs_next = policy_net(next_states)
+        alpha = log_alpha.exp().to(device)
+        q1_next = target_q_net1(next_states)
+        q2_next = target_q_net2(next_states)
+        min_q_next = torch.min(q1_next, q2_next) - alpha.detach() * log_probs_next
+        v_next = (probs_next * min_q_next).sum(dim=1, keepdim=True)
+        q_target = rewards.unsqueeze(1) + gamma * (1 - dones.unsqueeze(1)) * v_next
+
+    q_values1 = q_net1(states)
+    q_values2 = q_net2(states)
+    actions = actions.unsqueeze(-1)
+    q_value1 = q_values1.gather(1, actions)
+    q_value2 = q_values2.gather(1, actions)
+
+    q_loss1 = nn.MSELoss()(q_value1, q_target)
+    q_loss2 = nn.MSELoss()(q_value2, q_target)
+    q_loss = q_loss1 + q_loss2
+
+    # Optimize Q-networks
+    q_optimizer.zero_grad()
+    q_loss.backward()
+    q_optimizer.step()
+
+    # --- Update Policy Network and Alpha ---
+    log_probs, probs = policy_net(states)
+    alpha = log_alpha.exp().to(device)
+    q1 = q_net1(states)
+    q2 = q_net2(states)
+    min_q = torch.min(q1, q2)
+    
+    policy_loss = (probs * (alpha * log_probs - min_q)).sum(dim=1).mean()
+    alpha_loss = -(log_alpha * (log_probs.sum(dim=1) + target_entropy).detach()).mean()
+
+    # Optimize Policy Network and Alpha
+    policy_optimizer.zero_grad()
+    alpha_optimizer.zero_grad()
+    (policy_loss + alpha_loss).backward()
+    policy_optimizer.step()
+    alpha_optimizer.step()
+
+    # Update alpha after optimizing log_alpha
+    alpha = log_alpha.exp().detach()
 
     # Soft update of target networks
-    soft_update(target_q_net1.q_net1, model.q_net1, tau)
-    soft_update(target_q_net2.q_net2, model.q_net2, tau)
+    soft_update(target_q_net1, q_net1, tau)
+    soft_update(target_q_net2, q_net2, tau)
 
-    return q_loss1, q_loss2, policy_loss, entropy
+    # Entropy (for logging)
+    entropy = -(log_probs * probs).sum(dim=1).mean()
+
+    return q_loss.item(), policy_loss.item(), alpha.item(), entropy.item()
 
 ################################# End of Part I ################################
 
@@ -167,7 +216,7 @@ action_dim = args.n_servers
 
 max_ep_len = 225            # Max timesteps in one episode
 gamma = 0.99                # Discount factor
-lr = 3e-4                   # Learning rate for all networks
+lr = 1e-3                   # Learning rate for all networks
 lr_alpha = 3e-4             # Learning rate for alpha
 random_seed = 0             # Set random seed
 max_training_timesteps = 100000   # Max training timesteps
@@ -261,17 +310,24 @@ print("=========================================================================
 ################# Training Procedure ################
 
 # Initialize SAC agent
-model = ActorCritic(state_dim, action_dim).to(device)
-target_q_net1 = ActorCritic(state_dim, action_dim).to(device)
-target_q_net2 = ActorCritic(state_dim, action_dim).to(device)
-target_q_net1.load_state_dict(model.state_dict())
-target_q_net2.load_state_dict(model.state_dict())
+policy_net = PolicyNetwork(state_dim, action_dim).to(device)
+q_net1 = QNetwork(state_dim, action_dim).to(device)
+q_net2 = QNetwork(state_dim, action_dim).to(device)
+# Target Q-networks
+target_q_net1 = QNetwork(state_dim, action_dim).to(device)
+target_q_net2 = QNetwork(state_dim, action_dim).to(device)
+# Initialize target networks
+target_q_net1.load_state_dict(q_net1.state_dict())
+target_q_net2.load_state_dict(q_net2.state_dict())
 
-optimizer = optim.Adam(model.parameters(), lr=lr)
+policy_optimizer = optim.Adam(policy_net.parameters(), lr=lr)
+q_optimizer = optim.Adam(list(q_net1.parameters()) + list(q_net2.parameters()), lr=lr)
 
 # Automatic entropy tuning
 log_alpha = torch.zeros(1, requires_grad=True, device=device)
 alpha_optimizer = optim.Adam([log_alpha], lr=lr_alpha)
+
+alpha = log_alpha.exp().detach()
 
 replay_buffer = ReplayMemory(capacity)
 
@@ -300,6 +356,7 @@ i_episode = 0
 
 # Start training loop
 while time_step <= max_training_timesteps:
+    # sleep (0.5)
     print("New training episode:")
     state = env.reset()
     current_ep_reward = 0
@@ -311,11 +368,13 @@ while time_step <= max_training_timesteps:
         else:
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
             with torch.no_grad():
-                log_probs, probs, _, _ = model(state_tensor)
+                log_probs, probs = policy_net(state_tensor)
             action_prob = probs.cpu().numpy().flatten()
             action = np.random.choice(action_dim, p=action_prob)
 
         next_state, reward, done, info = env.step(action)
+        if isinstance(reward, (list, np.ndarray, torch.Tensor)):
+            reward = np.sum(reward)
         time_step += 1
         current_ep_reward += reward
         print(f"The current total episodic reward at timestep: {time_step} is: {current_ep_reward}")
@@ -327,20 +386,11 @@ while time_step <= max_training_timesteps:
 
         # Off-policy update
         if time_step >= initial_random_steps:
-            batch = replay_buffer.sample(batch_size)
-    
-            # Compute alpha loss and update alpha
-            state_batch = batch[0]
-            log_pi, pi, _, _ = model(state_batch)
-            alpha_loss = -(log_alpha * (log_pi + target_entropy).detach()).mean()
-
-            alpha_optimizer.zero_grad()
-            alpha_loss.backward()
-            alpha_optimizer.step()
-            alpha = log_alpha.exp().detach()
-
             # Update SAC networks
-            off_policy_update(model, target_q_net1, target_q_net2, optimizer, replay_buffer, batch_size, alpha, gamma, tau)
+            q_loss_value, policy_loss_value, alpha_value, entropy_value = off_policy_update(
+                policy_net, q_net1, q_net2, target_q_net1, target_q_net2,
+                replay_buffer, batch_size, log_alpha, alpha_optimizer, target_entropy, gamma, tau
+            )
 
         # Log in logging file
         if time_step % log_freq == 0 and log_running_episodes > 0:
@@ -370,7 +420,19 @@ while time_step <= max_training_timesteps:
         if time_step % save_model_freq == 0:
             print("--------------------------------------------------------------------------------------------")
             print(f"Saving model at: {checkpoint_path}")
-            torch.save(model.state_dict(), checkpoint_path)
+            checkpoint = {
+                'policy_net_state_dict': policy_net.state_dict(),
+                'q_net1_state_dict': q_net1.state_dict(),
+                'q_net2_state_dict': q_net2.state_dict(),
+                'target_q_net1_state_dict': target_q_net1.state_dict(),
+                'target_q_net2_state_dict': target_q_net2.state_dict(),
+                'optimizer_policy_state_dict': policy_optimizer.state_dict(),
+                'optimizer_q_state_dict': q_optimizer.state_dict(),
+                'alpha': alpha,
+                'log_alpha': log_alpha,
+                'alpha_optimizer_state_dict': alpha_optimizer.state_dict(),
+            }
+            torch.save(checkpoint, checkpoint_path)
             print("Model saved")
             print("--------------------------------------------------------------------------------------------")
 

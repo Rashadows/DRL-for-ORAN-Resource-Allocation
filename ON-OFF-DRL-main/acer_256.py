@@ -160,7 +160,6 @@ print("=========================================================================
 ####### initialize environment hyperparameters and ACER hyperparameters ######
 
 print("setting training environment : ")
-
 max_ep_len = 225            # max timesteps in one episode
 gamma = 0.99                # discount factor
 lr_actor = 0.0003       # learning rate for actor network

@@ -122,7 +122,7 @@ class Env():
 
         self.batch_instance = pd.read_csv(self.batch_instance_path, header=None, names=self.batch_instance_cols)
         self.batch_instance = self.batch_instance[(self.batch_instance['cpu_avg'] != "") & (self.batch_instance['mem_avg'] != "")]
-        self.batch_instance = self.batch_instance[['task_name', 'cpu_avg','mem_avg']]
+        self.batch_instance = self.batch_instance[['cpu_avg','mem_avg']]
 
         self.batch_task = pd.read_csv(self.batch_task_path, header=None, names=self.batch_task_cols)
         self.batch_task = self.batch_task[self.batch_task['status'] == 'Terminated']
@@ -180,27 +180,26 @@ class Env():
                  [m.mem_empty for m in self.machines] + \
                  [nxt_task.plan_cpu, nxt_task.plan_mem, nxt_task.last_time]
         
-        return np.array(states)
-    
+        return np.array(states)  # scale
+
     def get_reward(self, nxt_task):
-        # Calculate the total power consumption at time t
-        total_power = self.calc_total_power()  # Sum over all machines
+        penalty_factor = 0.15
+        reward = -self.w1 * self.calc_total_power() - self.w2 * self.calc_total_latency()
 
-        # Calculate P_min and P_max
-        P_min = self.n_machines * self.P_0
-        P_max = self.n_machines * self.P_100
+        task_row = None
+        if 'task_name' in self.batch_instance.columns and hasattr(nxt_task, 'name'):
+            # Select the row using task_name if available
+            task_row = self.batch_instance.loc[self.batch_instance['task_name'] == nxt_task.name]
+        elif isinstance(nxt_task, int) and 0 <= nxt_task < len(self.batch_instance):
+            # Fallback to index-based access if task_name is unavailable
+            task_row = self.batch_instance.iloc[[nxt_task]]
 
-        # Normalize the total power consumption
-        normalized_power = (total_power - P_min) / (P_max - P_min)
+        if task_row is not None and not task_row.empty:
+            # Accessing the first entry in case of multiple rows
+            if task_row['cpu_avg'].iloc[0] > 0.9 or task_row['mem_avg'].iloc[0] > 0.9:
+                reward -= self.w3 * penalty_factor  # introduce penalty factor
 
-        # Calculate the normalized reward
-        normalized_reward = -normalized_power  # Negative because we aim to minimize power
-
-        # Optionally, if you want a positive reward where higher is better:
-        # normalized_reward = 1 - normalized_power
-
-        # Return the normalized reward
-        return normalized_reward
+        return reward
     
     # def get_reward(self, nxt_task):
     #     """
@@ -240,19 +239,27 @@ class Env():
     #     return reward
        
     def calc_total_power(self):
-        total_power = 0
         for m in self.machines:
-            cpu = m.cpu()
-            power_m = self.P_0 + (self.P_100 - self.P_0) * (2 * cpu - cpu ** 1.4)
-            total_power += power_m
-        return total_power
+            return self.P_0 + (self.P_100 - self.P_0) * (2 * m.cpu() - m.cpu()**(1.4))
+    
+    # def calc_total_power(self):
+    #     total_power = 0
+    #     for m in self.machines:
+    #         cpu_util = m.cpu()
+    #         total_power += self.P_0 + (self.P_100 - self.P_0) * (2 * cpu_util - cpu_util**1.4)
+    #     return total_power
     
     def calc_total_latency(self):
-        latency_list = [t.start_time - t.arrive_time for t in self.tasks]
-        cumulative_latency = np.cumsum(latency_list)
-        total_latency = cumulative_latency[-1]
-        return total_latency
+        for t in self.tasks:
+            latency = [t.start_time - t.arrive_time]
+        for i in range(1, len(latency)):
+            latency[i] = latency[i] + latency[i - 1]
+        return np.sum(latency)
     
+    # def calc_total_latency(self):
+    #     latency = [t.start_time - t.arrive_time for t in self.tasks]
+    #     cumulative_latency = np.cumsum(latency)
+    #     return cumulative_latency[-1]
     
     def sample_action(self):
         rand_machine = random.randint(0, self.n_machines-1)
