@@ -2,7 +2,6 @@
 ############################### Import libraries ###############################
 
 """
-Script to train PPO with 256 hidden units
 PPO code from https://github.com/nikhilbarhate99/PPO-PyTorch
 
 misc{pytorch_minimal_ppo,
@@ -23,7 +22,6 @@ from torch.distributions import Categorical
 import numpy as np
 from env import Env
 from argparser import args
-from time import sleep
 
 ################################## set device to cpu or cuda ##################################
 
@@ -33,7 +31,7 @@ print("=========================================================================
 device = torch.device('cpu')
 
 if(torch.cuda.is_available()): 
-    device = torch.device('cuda:0') 
+    device = torch.device('cuda:1') 
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
@@ -41,6 +39,7 @@ else:
     
 print("============================================================================================")
 
+NN_size = 256
 ################################## Define PPO Policy ##################################
 
 
@@ -66,22 +65,22 @@ class ActorCritic(nn.Module):
         
         # actor
         self.actor = nn.Sequential(
-            nn.Linear(state_dim, 256),
+            nn.Linear(state_dim, NN_size),
             nn.Tanh(),
-            nn.Linear(256, 256),
+            nn.Linear(NN_size, NN_size),
             nn.Tanh(),
-            nn.Linear(256, action_dim),
+            nn.Linear(NN_size, action_dim),
             nn.Softmax(dim=-1)
             )
 
         
         # critic
         self.critic = nn.Sequential(
-                        nn.Linear(state_dim, 256),
+                        nn.Linear(state_dim, NN_size),
                         nn.Tanh(),
-                        nn.Linear(256, 256),
+                        nn.Linear(NN_size, NN_size),
                         nn.Tanh(),
-                        nn.Linear(256, 1)
+                        nn.Linear(NN_size, 1)
                     )
     
 
@@ -275,7 +274,7 @@ if not os.path.exists(directory):
       os.makedirs(directory)
 
 
-checkpoint_path = directory + "PPO256_{}_{}_{}.pth".format('resource_allocation', random_seed, run_num_pretrained)
+checkpoint_path = directory + "PPO{}_{}_{}_{}.pth".format(NN_size, 'resource_allocation', random_seed, run_num_pretrained)
 print("save checkpoint path : " + checkpoint_path)
 
 #####################################################
@@ -348,7 +347,6 @@ rewards = []
 # start training loop
 while time_step <= max_training_timesteps:
     print("New training episode:")
-    sleep(0.1) # we sleep to read the reward in console
     state = env.reset()
     current_ep_reward = 0
 
@@ -365,12 +363,10 @@ while time_step <= max_training_timesteps:
         time_step +=1
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
-        sleep(0.1) # we sleep to read the reward in console
         # update PPO agent
         if time_step % update_timestep == 0:
             ppo_agent.update()
             print("Update PPO policy at timestep:", time_step)
-            sleep(0.1) # we sleep to read the reward in console
 
 
         # log in logging file
@@ -380,7 +376,6 @@ while time_step <= max_training_timesteps:
             log_avg_reward = log_running_reward / log_running_episodes
             log_avg_reward = round(log_avg_reward, 4)
             print("Saving reward to csv file")
-            sleep(0.1) # we sleep to read the reward in console
 
             log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f.flush()
@@ -396,7 +391,6 @@ while time_step <= max_training_timesteps:
             print_avg_reward = round(print_avg_reward, 2)
             rewards.append(print_avg_reward)
             print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
-            sleep(0.1) # we sleep to read the reward in console
             print_running_reward = 0
             print_running_episodes = 0
             
@@ -404,7 +398,6 @@ while time_step <= max_training_timesteps:
         if time_step % save_model_freq == 0:
             print("--------------------------------------------------------------------------------------------")
             print("saving model at : " + checkpoint_path)
-            sleep(0.1) # we sleep to read the reward in console
             ppo_agent.save(checkpoint_path)
             print("model saved")
             print("--------------------------------------------------------------------------------------------")

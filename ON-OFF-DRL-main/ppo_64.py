@@ -2,7 +2,6 @@
 ############################### Import libraries ###############################
 
 """
-Script to train PPO with 64 hidden units
 PPO code from https://github.com/nikhilbarhate99/PPO-PyTorch
 
 misc{pytorch_minimal_ppo,
@@ -23,7 +22,6 @@ from torch.distributions import Categorical
 import numpy as np
 from env import Env
 from argparser import args
-from time import sleep
 
 ################################## set device to cpu or cuda ##################################
 
@@ -33,7 +31,7 @@ print("=========================================================================
 device = torch.device('cpu')
 
 if(torch.cuda.is_available()): 
-    device = torch.device('cuda:0') 
+    device = torch.device('cuda:1') 
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
@@ -41,6 +39,7 @@ else:
     
 print("============================================================================================")
 
+NN_size = 64
 ################################## Define PPO Policy ##################################
 
 
@@ -66,22 +65,22 @@ class ActorCritic(nn.Module):
         
         # actor
         self.actor = nn.Sequential(
-            nn.Linear(state_dim, 64),
+            nn.Linear(state_dim, NN_size),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(NN_size, NN_size),
             nn.Tanh(),
-            nn.Linear(64, action_dim),
+            nn.Linear(NN_size, action_dim),
             nn.Softmax(dim=-1)
             )
 
         
         # critic
         self.critic = nn.Sequential(
-                        nn.Linear(state_dim, 64),
+                        nn.Linear(state_dim, NN_size),
                         nn.Tanh(),
-                        nn.Linear(64, 64),
+                        nn.Linear(NN_size, NN_size),
                         nn.Tanh(),
-                        nn.Linear(64, 1)
+                        nn.Linear(NN_size, 1)
                     )
     
 
@@ -243,27 +242,23 @@ log_dir = "PPO_files"
 if not os.path.exists(log_dir):
       os.makedirs(log_dir)
 
-log_dir_1 = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
-if not os.path.exists(log_dir_1):
-      os.makedirs(log_dir_1)
-log_dir_2 = log_dir + '/' + 'resource_allocation' + '/' + 'reward' + '/'
-if not os.path.exists(log_dir_2):
-      os.makedirs(log_dir_2)
+log_dir = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
+if not os.path.exists(log_dir):
+      os.makedirs(log_dir)
 
 
 #### get number of log files in log directory
 run_num = 0
-current_num_files1 = next(os.walk(log_dir_1))[2]
-run_num1 = len(current_num_files1)
-current_num_files2 = next(os.walk(log_dir_2))[2]
-run_num2 = len(current_num_files2)
+current_num_files = next(os.walk(log_dir))[2]
+run_num = len(current_num_files)
 
-#### create new saving file for each run 
-log_f_name = log_dir_1 + '/PPO_' + 'resource_allocation' + "_log_" + str(run_num1) + ".csv"
-log_f_name2 = log_dir_2 + '/PPO_' + 'resource_allocation' + "_log_" + str(run_num2) + ".csv"
 
-print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
+#### create new log file for each run 
+log_f_name = log_dir + '/PPO_' + 'resource_allocation' + "_log_" + str(run_num) + ".csv"
+
+print("current logging run number for " + 'resource_allocation' + " : ", run_num)
 print("logging at : " + log_f_name)
+
 #####################################################
 
 ################### checkpointing ###################
@@ -279,7 +274,7 @@ if not os.path.exists(directory):
       os.makedirs(directory)
 
 
-checkpoint_path = directory + "PPO64_{}_{}_{}.pth".format('resource_allocation', random_seed, run_num_pretrained)
+checkpoint_path = directory + "PPO{}_{}_{}_{}.pth".format(NN_size, 'resource_allocation', random_seed, run_num_pretrained)
 print("save checkpoint path : " + checkpoint_path)
 
 #####################################################
@@ -336,8 +331,7 @@ print("=========================================================================
 # logging file
 log_f = open(log_f_name,"w+")
 log_f.write('episode,timestep,reward\n')
-log_f2 = open(log_f_name2,"w+")
-log_f2.write('episode,timestep,reward\n')
+
 
 # printing and logging variables
 print_running_reward = 0
@@ -353,7 +347,6 @@ rewards = []
 # start training loop
 while time_step <= max_training_timesteps:
     print("New training episode:")
-    sleep(0.1) # we sleep to read the reward in console
     state = env.reset()
     current_ep_reward = 0
 
@@ -370,12 +363,10 @@ while time_step <= max_training_timesteps:
         time_step +=1
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
-        sleep(0.1) # we sleep to read the reward in console
         # update PPO agent
         if time_step % update_timestep == 0:
             ppo_agent.update()
             print("Update PPO policy at timestep:", time_step)
-            sleep(0.1) # we sleep to read the reward in console
 
 
         # log in logging file
@@ -385,12 +376,10 @@ while time_step <= max_training_timesteps:
             log_avg_reward = log_running_reward / log_running_episodes
             log_avg_reward = round(log_avg_reward, 4)
             print("Saving reward to csv file")
-            sleep(0.1) # we sleep to read the reward in console
 
             log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f.flush()
-            log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
-            log_f2.flush()
+
             log_running_reward = 0
             log_running_episodes = 0
             
@@ -402,7 +391,6 @@ while time_step <= max_training_timesteps:
             print_avg_reward = round(print_avg_reward, 2)
             rewards.append(print_avg_reward)
             print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
-            sleep(0.1) # we sleep to read the reward in console
             print_running_reward = 0
             print_running_episodes = 0
             
@@ -410,7 +398,6 @@ while time_step <= max_training_timesteps:
         if time_step % save_model_freq == 0:
             print("--------------------------------------------------------------------------------------------")
             print("saving model at : " + checkpoint_path)
-            sleep(0.1) # we sleep to read the reward in console
             ppo_agent.save(checkpoint_path)
             print("model saved")
             print("--------------------------------------------------------------------------------------------")
@@ -429,7 +416,7 @@ while time_step <= max_training_timesteps:
 
 
 log_f.close()
-log_f2.close()
+
 print("============================================================================================")
 
 ################################ End of Part II ################################

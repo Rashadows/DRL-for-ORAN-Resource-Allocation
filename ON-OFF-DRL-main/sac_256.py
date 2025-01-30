@@ -3,7 +3,6 @@
 
 
 import os
-import copy
 from datetime import datetime
 from collections import deque
 import torch
