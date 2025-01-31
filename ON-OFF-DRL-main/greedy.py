@@ -21,7 +21,7 @@ class Greedy(object):
         m_cpu = (100, [])
         # find the server with the lowest CPU usage
         for i in range(self.n_servers):
-            cpu = obs[i << 1]
+            cpu = obs[i]
             if cpu < m_cpu[0]:
                 m_cpu = (cpu, [i])
             elif cpu == m_cpu[0]:

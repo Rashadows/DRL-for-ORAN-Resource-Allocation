@@ -167,7 +167,6 @@ class Env():
         
         nxt_task = self.tasks[self.cur]
 
-        ### simulate to current time
         for m in self.machines:
             m.process(self.cur_time)
         self.power_usage.append(np.sum([m.power_usage for m in self.machines]))

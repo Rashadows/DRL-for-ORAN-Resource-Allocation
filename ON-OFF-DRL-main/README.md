@@ -1,8 +1,8 @@
 # ON_OFF_DRL
-Code for the paper On-Policy vs. Off-Policy Deep Reinforcement Learning for Resource Allocation in Open Radio Access Network
-- This is the code for the paper: On-Policy vs. Off-Policy Deep Reinforcement Learning for Resource Allocation in Open Radio Access Network
+This work is inspired from the paper "On-Policy vs. Off-Policy Deep Reinforcement Learning for Resource Allocation in Open Radio Access Network" which provided ACER and PPO comparitive analysis for O-RAN resource allocation environment.
+Here, we discretize TD3 and SAC algorithms and adapt them for the O-RAN discrete-action environment to show they outperform the existing algorithms. Our work is summarized in the paper "Optimizing Resource Allocation in Open RANs: A DRL-Based Approach".
 
-- It has been tested on Windows 10 and Python 3.8.3
+- It has been tested on Windows 10 and Python 3.11.4
 
 - To run the code, mainly you need:
  * pip install torch
@@ -13,17 +13,14 @@ Code for the paper On-Policy vs. Off-Policy Deep Reinforcement Learning for Reso
  * stability_plot.py to get the ACER and PPO reward figures for different NN architectures
  * plot.py to get the energy and energy per latency figures (last two figures)
 
-- To start training from scratch, you need to generate the reward files and the trained models weights by running:
- * acer_32.py, then
- * acer_64.py, then
- * acer_256.py, then
- * ppo_32.py, then
- * ppo_64.py, then
- * ppo_256.py, then
+- To start training from scratch, you need to generate the reward files and the trained models weights by running the following:
+ * {algorithm}_32.py
+ * {algorithm}_64.py 
+ * {algorithm}_256.py 
  * reward_plot.py and stability_plot.py
+ with {algorithm} being one of {ACER, PPO, Double_DQN, TD3, SAC}
 
-As a result you will create folders (PPO_files, PPO_pretrained, ACER_files, ACER_pretrained) 
-that contains reward files and trained models respectively.
+As a result you will create folders in the format ({algorithm}_files, {algorithm}_preTrained) which contain the reward files and trained models respectively.
 
 - learn_acer.py and learn_ppo.py load the trained models to test them in energy and latency performance
  * run main.py to to do these tests and plot the energy and energy per latency figures.
@@ -32,4 +29,5 @@ that contains reward files and trained models respectively.
 ----- REFERENCES -----
  * https://github.com/higgsfield/RL-Adventure-2
  * https://github.com/nikhilbarhate99/PPO-PyTorch
+ * https://github.com/nessry/ON-OFF-DRL
  * https://github.com/gohsyi/cluster_optimization

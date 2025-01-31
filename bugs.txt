@@ -1,9 +1,5 @@
 ----------Potential Bugs:
 
-In env.py----------
-The calc_total_latency() function reintializes in the same list, instead of appending
-self.start_time = self.arrive_time in class Task(objects)
-
 In greedy.py----------
 return np.random.choice(m_cpu[1]) generates a random sample from the range 0 to the server of lowest cpu
 

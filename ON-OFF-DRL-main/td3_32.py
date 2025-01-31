@@ -28,7 +28,7 @@ else:
     
 print("============================================================================================")
 
-NN_size = 256
+NN_size = 32
 
 ################################## Define Weight Initialization ##################################
 
@@ -176,14 +176,20 @@ def td3_update(batch_size):
         # Compute log probabilities
         log_probs = torch.log(action_probs + 1e-10)  # Adding epsilon for numerical stability
 
-        # Sample actions for computation
-        action_dist = torch.distributions.Categorical(action_probs)
-        sampled_actions = action_dist.sample()
-        sampled_actions_one_hot = torch.zeros(batch_size, action_dim).to(device)
-        sampled_actions_one_hot.scatter_(1, sampled_actions.unsqueeze(1), 1.0)
+        entropy = -torch.sum(action_probs * log_probs, dim=1, keepdim=True)
 
-        # Actor loss is the negative expected Q value
-        actor_loss = -critic.Q1(state, sampled_actions_one_hot).mean()
+        all_actions = torch.eye(action_dim).to(device)
+        all_actions_expanded = all_actions.unsqueeze(0).expand(batch_size, -1, -1)
+        
+        # Compute Q-values for all actions
+        state_expanded = state.unsqueeze(1).expand(-1, action_dim, -1)  # Shape: [batch_size, action_dim, state_dim]
+        q_values = critic.Q1(state_expanded.reshape(-1, state_dim), all_actions_expanded.reshape(-1, action_dim))
+        q_values = q_values.view(batch_size, action_dim)
+
+        expected_Q = torch.sum(action_probs * q_values, dim=1, keepdim=True)
+
+        # Compute expected Q-values under the current policy
+        actor_loss = (-expected_Q + entropy_coefficient * entropy).mean()
 
         # Optimize the actor
         actor_optimizer.zero_grad()
@@ -225,6 +231,7 @@ policy_noise = 0.2       # Noise added to target policy during critic update
 noise_clip = 0.5         # Range to clip target policy noise
 policy_delay = 2         # Delayed policy updates parameter
 exploration_noise = 0.1  # Exploration noise during training
+entropy_coefficient = 0.01
 
 env = Env()
 
