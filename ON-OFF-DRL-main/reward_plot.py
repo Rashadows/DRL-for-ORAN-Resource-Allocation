@@ -22,9 +22,9 @@ def step_plot():
 
     algorithms = {
         "ACER": "green",
-        "PPO": "black",
-        "Double_DQN": "purple",
-        "TD3": "red", 
+        "PPO": "red",
+        "Double_DQN": "orange",
+        "TD3": "purple", 
         "SAC": "blue"
     }
 
@@ -37,7 +37,7 @@ def step_plot():
         all_runs = []
         
         for run_num in range(num_runs):
-            log_f_name = f"{log_dir}/{algo}_resource_allocation_log_{run_num}.csv"
+            log_f_name = f"{log_dir}/{algo}_64_resource_allocation_log_{run_num}.csv"
             print(f"loading data from: {log_f_name}")
             data = pd.read_csv(log_f_name)
             all_runs.append(data)
@@ -75,9 +75,9 @@ def episode_plot():
 
     algorithms = {
         "ACER": "green",
-        "PPO": "black",
-        "Double_DQN": "purple",
-        "TD3": "red", 
+        "PPO": "red",
+        "Double_DQN": "orange",
+        "TD3": "purple", 
         "SAC": "blue"
     }
 
@@ -90,7 +90,7 @@ def episode_plot():
         all_runs = []
         
         for run_num in range(num_runs):
-            log_f_name = f"{log_dir}/{algo}_resource_allocation_log_{run_num}.csv"
+            log_f_name = f"{log_dir}/{algo}_64_resource_allocation_log_{run_num}.csv"
             print(f"loading data from: {log_f_name}")
             data = pd.read_csv(log_f_name)
             all_runs.append(data)

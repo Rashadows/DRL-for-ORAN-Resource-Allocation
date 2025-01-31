@@ -242,9 +242,9 @@ log_dir = "PPO_files"
 if not os.path.exists(log_dir):
       os.makedirs(log_dir)
 
-log_dir = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
-if not os.path.exists(log_dir):
-      os.makedirs(log_dir)
+log_dir1 = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
+if not os.path.exists(log_dir1):
+      os.makedirs(log_dir1)
 
       
 log_dir_2 = log_dir + '/' + 'resource_allocation' + '/' + 'reward' + '/'
@@ -253,19 +253,19 @@ if not os.path.exists(log_dir_2):
 
 #### get number of log files in log directory
 run_num = 0
-current_num_files = next(os.walk(log_dir))[2]
+current_num_files = next(os.walk(log_dir1))[2]
 run_num = len(current_num_files)
 current_num_files2 = next(os.walk(log_dir_2))[2]
 run_num2 = len(current_num_files2)
 
 
 #### create new log file for each run 
-log_f_name = log_dir + '/PPO_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num) + ".csv"
+log_f_name = log_dir1 + '/PPO_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num) + ".csv"
 log_f_name2 = log_dir_2 + '/PPO_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num2) + ".csv"
 
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num)
-print("logging at : " + log_f_name)
+print("logging at : " + log_f_name +" and " + log_f_name2)
 
 #####################################################
 
@@ -391,7 +391,7 @@ while time_step <= max_training_timesteps:
             log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f2.flush()
 
-            log_running_reward = 0
+            log_running_r6eward = 0
             log_running_episodes = 0
             
         # printing average reward
