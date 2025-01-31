@@ -14,7 +14,7 @@ import torch.optim as optim
 from env import Env
 from argparser import args
 
-################################## Set Device to CPU or CUDA ##################################
+################################## Initialize Training Settings ##################################
 
 print("============================================================================================")
 
@@ -30,6 +30,13 @@ else:
 print("============================================================================================")
 
 NN_size = 32
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
 
 ################################## Define SAC Components ##################################
 
@@ -303,10 +310,8 @@ print(f"Optimizer learning rate: {lr}")
 
 print("--------------------------------------------------------------------------------------------")
 print(f"Setting random seed to {random_seed}")
-torch.manual_seed(random_seed)
-np.random.seed(random_seed)
-random.seed(random_seed)
 
+set_seed(random_seed)
 #####################################################
 
 print("============================================================================================")
