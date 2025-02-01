@@ -31,7 +31,7 @@ print("=========================================================================
 device = torch.device('cpu')
 
 if(torch.cuda.is_available()): 
-    device = torch.device('cuda:1') 
+    device = torch.device('cuda:0') 
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
@@ -391,7 +391,7 @@ while time_step <= max_training_timesteps:
             log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f2.flush()
 
-            log_running_r6eward = 0
+            log_running_reward = 0
             log_running_episodes = 0
             
         # printing average reward

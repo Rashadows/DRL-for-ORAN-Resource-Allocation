@@ -392,7 +392,7 @@ while time_step <= max_training_timesteps:
         next_state, reward, done, info = env.step(action_discrete)
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
-
+        time_step += 1
         # One-hot encode the discrete action for the Critic
         action_one_hot = np.zeros(action_dim, dtype=np.float32)
         action_one_hot[action_discrete] = 1.0
