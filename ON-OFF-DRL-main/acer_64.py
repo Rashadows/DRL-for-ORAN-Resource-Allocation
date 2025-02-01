@@ -295,8 +295,6 @@ log_running_episodes = 0
 
 time_step = 0
 i_episode = 0
-num_steps    = 50
-log_interval = 10
 
 # start training loop
 while time_step <= max_training_timesteps:
@@ -384,7 +382,6 @@ while time_step <= max_training_timesteps:
     log_running_episodes += 1
 
     i_episode += 1
-    time_step += num_steps
     
 
 log_f.close()

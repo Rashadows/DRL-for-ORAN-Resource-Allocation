@@ -334,7 +334,7 @@ print("=========================================================================
 ################# training procedure ################
 
 # Initialize policy and value networks
-actor = Actor(state_dim, action_dim).to(device)  # Removed max_action as it's not needed
+actor = Actor(state_dim, action_dim).to(device)
 actor_target = Actor(state_dim, action_dim).to(device)
 actor_target.load_state_dict(actor.state_dict())
 
@@ -390,7 +390,6 @@ while time_step <= max_training_timesteps:
 
         # Take the action in the environment
         next_state, reward, done, info = env.step(action_discrete)
-        time_step += 1
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
 
@@ -444,12 +443,11 @@ while time_step <= max_training_timesteps:
             print("--------------------------------------------------------------------------------------------")
         state = next_state
 
-        print_running_reward += reward
-        log_running_reward += reward
-
-        # break; if the episode is over
         if done:
             break
+
+    print_running_reward += reward
+    log_running_reward += reward
 
     print_running_episodes += 1
     log_running_episodes += 1
