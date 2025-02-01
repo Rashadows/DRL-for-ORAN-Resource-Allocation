@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Code from: https://github.com/gohsyi/cluster_optimization
+Code adapted from: https://github.com/gohsyi/cluster_optimization
 """
 
 ############################### Import libraries ###############################
@@ -149,30 +149,43 @@ class Env():
         ) for i in range(self.n_machines) ]
 
         return self.get_states(self.tasks[self.cur])
-
+    
     def step(self, action):
         self.cur_time = self.batch_task.iloc[self.cur]['start_time']
         cur_task = self.tasks[self.cur]
-        
-        done = False
-        self.cur += 1
-        
-        if self.cur == self.n_tasks:
-            self.latency = [t.start_time - t.arrive_time for t in self.tasks]
-            for i in range(1, len(self.latency)):
-                self.latency[i] = self.latency[i] + self.latency[i - 1]
-            
-            done = True
-            self.cur = 0
-        
-        nxt_task = self.tasks[self.cur]
 
+        done = False
+
+        # Assign the current task to the chosen machine
+        self.machines[action].add_task(cur_task)
+
+        # Process tasks
         for m in self.machines:
             m.process(self.cur_time)
-        self.power_usage.append(np.sum([m.power_usage for m in self.machines]))
-        
-        self.machines[action].add_task(cur_task)
-        return self.get_states(nxt_task), self.get_reward(nxt_task), done, (self.latency, self.power_usage)
+
+        # Now that we've processed tasks, cur_task.start_time should be set
+        if cur_task.start_time is not None:
+            current_latency = cur_task.start_time - cur_task.arrive_time
+        else:
+            # Task hasn't started yet; latency is the time until now
+            current_latency = self.cur_time - cur_task.arrive_time
+
+        self.latency.append(current_latency)
+
+        # Calculate power usage for current time step
+        current_power_usage = np.sum([m.power_usage for m in self.machines])
+        self.power_usage.append(current_power_usage)
+
+        # Advance to the next task
+        self.cur += 1
+        if self.cur == self.n_tasks:
+            done = True
+            self.cur = 0  # Reset for next episode
+
+        nxt_task = self.tasks[self.cur]
+
+        # Return scalar latency and power
+        return self.get_states(nxt_task), self.get_reward(cur_task), done, (current_latency, current_power_usage)
 
     def get_states(self, nxt_task):
         states = [m.cpu_idle for m in self.machines] + \
@@ -193,9 +206,6 @@ class Env():
         normalized_power = (total_power - P_min) / (P_max - P_min)
 
         # # Calculate the normalized reward
-        # normalized_reward = -normalized_power  # Negative because we aim to minimize power
-
-        # Optionally, if you want a positive reward where higher is better:
         normalized_reward = 1 - normalized_power
 
         # Return the normalized reward
@@ -264,7 +274,7 @@ class Task(object):
         self.last_time = end_time - start_time
         self.plan_cpu = plan_cpu
         self.plan_mem = plan_mem
-        self.start_time = self.arrive_time
+        self.start_time = None
 
     def start(self, start_time):
         self.start_time = start_time
@@ -350,7 +360,6 @@ class Machine():
         1. Running queue is empty
         2. The first task in the pending queue arrives before all tasks in the running queue finishes
         """
-
         if self.is_empty(self.pending_queue):
             return False
         if not self.enough_resource(self.pending_queue[0]):
@@ -364,24 +373,21 @@ class Machine():
             self.cpu_idle -= task.plan_cpu
             self.mem_empty -= task.plan_mem
             heapq.heappush(self.running_queue, task)
-
             return True
 
         return False
 
     def process(self, cur_time):
-        
         """
-        keep running simulation until current time
+        Keep running simulation until current time.
         """
-
-        if self.cur_time == 0:  ## the first time, no task has come before
+        if self.cur_time == 0:  # First time, no task has come before
             self.cur_time = cur_time
             return
-        if self.awake_time > cur_time:  ## will not be waken at cur_time
+        if self.awake_time > cur_time:  # Will not be awakened at cur_time
             self.cur_time = cur_time
             return
-        if self.awake_time > self.cur_time:  ## jump to self.awake_time
+        if self.awake_time > self.cur_time:  # Jump to self.awake_time
             self.cur_time = self.awake_time
             self.state = 'waken'
 

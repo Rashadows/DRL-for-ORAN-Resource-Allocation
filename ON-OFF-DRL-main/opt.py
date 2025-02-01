@@ -1,8 +1,10 @@
 import gurobipy as grb
+from argparser import args
+from time import sleep
 
 class Optimal(object):
     def __init__(self, act_size, n_servers, tasks):
-        self.name = 'optimal'       # set model name
+        self.name = 'optimal'     
         self.n_servers = n_servers
         self.act_size = act_size
         self.tasks = tasks
@@ -28,6 +30,9 @@ class Optimal(object):
         # Define binary decision variables
         x_vars = {i: opt_model.addVar(vtype=grb.GRB.BINARY, name="x_{}".format(i))
                   for i in range(self.n_servers)}
+
+        # Update model to integrate new variables
+        opt_model.update()
 
         # Add assignment constraint
         opt_model.addConstr(
@@ -64,16 +69,48 @@ class Optimal(object):
             for i in range(self.n_servers)
         )
 
+        print("Task Requirements:")
+        print(f" - CPU: {task_cpu}")
+        print(f" - Memory: {task_mem}")
+        print("Server Resource Availability:")
+        for i in range(self.n_servers):
+            print(f"Server {i}:")
+            print(f" - CPU Idle: {cpu_idle[i]}")
+            print(f" - Memory Empty: {mem_empty[i]}")
+        sleep(100)
         # Set model sense to minimization
         opt_model.ModelSense = grb.GRB.MINIMIZE
         opt_model.setObjective(objective)
+        opt_model.update()  # Ensure all changes are updated
+
+        # Optimize the model
         opt_model.optimize()
 
-        # Extract the result
-        for v in opt_model.getVars():
-            if v.x > 0.5:
-                selected_server = int(v.varName.split('_')[1])
-                return selected_server
-
-        # If no feasible solution found
-        return None
+        # Check if the optimization was successful
+        status = opt_model.Status
+        if status == grb.GRB.OPTIMAL or status == grb.GRB.SUBOPTIMAL:
+            # Extract the result
+            for v in opt_model.getVars():
+                if v.X > 0.5:
+                    selected_server = int(v.varName.split('_')[1])
+                    return selected_server
+            # If no variable is greater than 0.5, default action
+            print("No variable assignment found in optimal solution.")
+            return None
+        else:
+            # Handle infeasible or unbounded models
+            print(f"Optimization was unsuccessful. Status code: {status}")
+            if status == grb.GRB.INFEASIBLE:
+                print("Model is infeasible. No feasible solution exists.")
+                print("Computing IIS to diagnose infeasibility...")
+                opt_model.computeIIS() # Compute the Irreducible Inconsistent Subsystem (IIS)
+                opt_model.write("model.ilp") # Write a file model.ilp that contains the IIS for further analysis
+                for c in opt_model.getConstrs():
+                    if c.IISConstr:
+                        print(f"Infeasible constraint: {c.ConstrName}") # Output constraints that are causing the infeasibility
+            elif status == grb.GRB.UNBOUNDED:
+                print("Model is unbounded.")
+            else:
+                print("Optimization ended with status:", status)
+            # Decide how to handle this situation, e.g., return None or a random action
+            return None

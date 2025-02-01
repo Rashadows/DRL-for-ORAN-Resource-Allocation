@@ -210,7 +210,7 @@ print("=========================================================================
 
 print("setting training environment : ")
 
-max_ep_len = 200                     # max timesteps in one episode
+max_ep_len = 225                     # max timesteps in one episode
 update_timestep = max_ep_len * 4      # update policy every n timesteps
 K_epochs = 40               # update policy for K epochs
 eps_clip = 0.2              # clip parameter for PPO

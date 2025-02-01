@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Code from: https://github.com/gohsyi/cluster_optimization
+Code adapted from: https://github.com/gohsyi/cluster_optimization
 """
 
 """

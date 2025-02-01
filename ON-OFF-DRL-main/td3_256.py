@@ -34,9 +34,9 @@ NN_size = 256
 
 def weights_init(m):
     if isinstance(m, nn.Linear):
-        nn.init.xavier_uniform_(m.weight)
+        nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
         if m.bias is not None:
-            nn.init.constant_(m.bias, 0)
+            nn.init.zeros_(m.bias)
 
 ################################## Define TD3 Networks ##################################
 
@@ -138,8 +138,8 @@ def td3_update(batch_size):
     with torch.no_grad():
         # Target Actor: Get action logits and convert to probabilities
         next_action_logits = actor_target(next_state)
-        noise = (torch.randn_like(next_action_logits) * policy_noise).clamp(-noise_clip, noise_clip)
-        next_action_logits = next_action_logits + noise
+        # noise = (torch.randn_like(next_action_logits) * policy_noise).clamp(-noise_clip, noise_clip)
+        next_action_logits = next_action_logits #+ noise
 
         next_action_probs = F.softmax(next_action_logits, dim=1)
         action_dist = torch.distributions.Categorical(next_action_probs)
@@ -232,7 +232,7 @@ policy_noise = 0.2       # Noise added to target policy during critic update
 noise_clip = 0.5         # Range to clip target policy noise
 policy_delay = 2         # Delayed policy updates parameter
 exploration_noise = 0.1  # Exploration noise during training
-entropy_coefficient = 0.01 # Entropy coefficient for TD3
+entropy_coefficient = 0.1 # Entropy coefficient for TD3
 
 env = Env()
 

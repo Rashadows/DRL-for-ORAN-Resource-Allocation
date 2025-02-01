@@ -22,7 +22,7 @@ Here, we discretize TD3 and SAC algorithms and adapt them for the O-RAN discrete
 
 As a result you will create folders in the format ({algorithm}_files, {algorithm}_preTrained) which contain the reward files and trained models respectively.
 
-- learn_acer.py and learn_ppo.py load the trained models to test them in energy and latency performance
+- models.py load the trained models to test them in energy and latency performance
  * run main.py to to do these tests and plot the energy and energy per latency figures.
 - opt.py and greedy.py implement the optimal MIP solution and the greedy solution respectively.
 
