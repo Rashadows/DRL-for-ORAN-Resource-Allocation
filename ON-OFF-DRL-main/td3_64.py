@@ -138,8 +138,8 @@ def td3_update(batch_size):
     with torch.no_grad():
         # Target Actor: Get action logits and convert to probabilities
         next_action_logits = actor_target(next_state)
-        # noise = (torch.randn_like(next_action_logits) * policy_noise).clamp(-noise_clip, noise_clip)
-        next_action_logits = next_action_logits #+ noise
+        noise = (torch.randn_like(next_action_logits) * policy_noise).clamp(-noise_clip, noise_clip)
+        next_action_logits = next_action_logits + noise
 
         next_action_probs = F.softmax(next_action_logits, dim=1)
         action_dist = torch.distributions.Categorical(next_action_probs)
