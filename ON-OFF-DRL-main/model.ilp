@@ -1,0 +1,10 @@
+\ Model MIP Model_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+Minimize
+ 
+Subject To
+ cpu_capacity_0: 50 x_0 <= -9195
+Bounds
+Binaries
+ x_0
+End

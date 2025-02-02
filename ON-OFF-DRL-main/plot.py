@@ -38,8 +38,9 @@ def power_plot():
     ax.set_ylabel('Energy (kWh)', fontsize=11)
     ax.legend(algorithms, fontsize=11, loc='lower right')
     ax.grid(color='gray', linestyle='-', linewidth=1, alpha=0.1)
-    plt.xlim(1000, 2000)
-
+    plt.xlim(auto=True)  # Let matplotlib auto-scale
+    plt.ylim(auto=True)
+    
     fig = plt.gcf()
     fig.tight_layout()
     plt.savefig(fig_save_path1, dpi=600, facecolor='w', edgecolor='b',
@@ -80,7 +81,8 @@ def latency_plot():
     ax.set_ylabel('Energy (kWh)', fontsize=11)
     ax.legend(algorithms, fontsize=11, loc='upper left')
     ax.grid(color='gray', linestyle='-', linewidth=1, alpha=0.1)
-    plt.xlim(300000, 1000000)
+    plt.xlim(auto=True)  # Let matplotlib auto-scale
+    plt.ylim(auto=True)
 
     fig = plt.gcf()
     fig.tight_layout()

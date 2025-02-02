@@ -126,7 +126,7 @@ class Env():
 
         self.batch_task = pd.read_csv(self.batch_task_path, header=None, names=self.batch_task_cols)
         self.batch_task = self.batch_task[self.batch_task['status'] == 'Terminated']
-        self.batch_task = self.batch_task[self.batch_task['plan_cpu'] <= 100]  # will stuck the pending queue
+        self.batch_task = self.batch_task[self.batch_task['plan_cpu'] < 100]  # will stuck the pending queue
         self.batch_task = self.batch_task.sort_values(by='start_time')
 
         self.n_machines = self.n_servers
@@ -252,7 +252,7 @@ class Env():
         total_power = 0
         for m in self.machines:
             cpu = m.cpu()
-            power_m = self.P_0 + (self.P_100 - self.P_0) * (2 * cpu - cpu ** 1.4)
+            power_m = self.P_0 + (self.P_100 - self.P_0) * cpu
             total_power += power_m
         return total_power
     
@@ -316,10 +316,13 @@ class Machine():
         return 1 - self.cpu_idle / self.cpu_num
 
     def add_task(self, task):
-        self.pending_queue.append(task)
         if self.state == 'sleeping':
-                self.try_to_wake_up(task)
-        self.process_pending_queue()
+            self.try_to_wake_up(task)
+        # Allocate resources immediately (even if server is waking up)
+        self.cpu_idle -= task.plan_cpu
+        self.mem_empty -= task.plan_mem
+        self.pending_queue.append(task)
+        self.process_pending_queue()  # Start processing if possible
 
     def process_running_queue(self, cur_time):
         """
@@ -406,8 +409,10 @@ class Machine():
         if self.state == 'sleeping':
             return 0
         else:
-            cpu = self.cpu()
-            return (self.P_0 + (self.P_100 - self.P_0) * (2*cpu - cpu**1.4)) * (cur_time - self.cur_time)
+            time_elapsed_hours = (cur_time - self.cur_time) / 3600
+            cpu_util = 1 - (self.cpu_idle / 100)  # Use 0-1 scale
+            power_kW = self.P_0 + (self.P_100 - self.P_0) * cpu_util  # Linear model
+            return power_kW * time_elapsed_hours  # kWh
 
     def try_to_wake_up(self, task):
         if (self.awake_time > task.arrive_time + self.T_on):
