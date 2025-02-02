@@ -28,15 +28,7 @@ else:
 
 print("============================================================================================")
 
-NN_size = 64
-
-################################## Define Weight Initialization ##################################
-
-def weights_init(m):
-    if isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
+NN_size = 64  # You can change this to 32, 64, or 256 as needed
 
 ################################## Define TD3 Networks ##################################
 
@@ -82,7 +74,6 @@ class Actor(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, action_dim)  # Outputs logits for each action
         )
-        self.apply(weights_init)  # Apply weight initialization
 
     def forward(self, x):
         logits = self.actor(x)
@@ -109,8 +100,6 @@ class Critic(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, 1)
         )
-
-        self.apply(weights_init)  # Apply weight initialization
 
     def forward(self, x, u):
         xu = torch.cat([x, u], 1)
