@@ -128,15 +128,15 @@ class Critic(nn.Module):
 def select_action(state, exploration_noise=0.1):
     state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
     logits = actor(state_tensor)
-    action_probs = F.softmax(logits, dim=1)
-
-    # Epsilon-greedy exploration
-    if random.random() < exploration_noise:
-        action_discrete = random.randint(0, action_dim - 1)
-    else:
-        action_dist = torch.distributions.Categorical(action_probs)
-        action_discrete = action_dist.sample().item()
-
+    
+    # Add Gaussian noise to logits for exploration
+    noise = torch.randn_like(logits) * exploration_noise
+    noisy_logits = logits + noise
+    
+    action_probs = F.softmax(noisy_logits, dim=1)
+    action_dist = torch.distributions.Categorical(action_probs)
+    action_discrete = action_dist.sample().item()
+    
     return action_discrete
 
 def td3_update(batch_size):
@@ -151,56 +151,43 @@ def td3_update(batch_size):
     done = torch.FloatTensor(done).to(device)
 
     with torch.no_grad():
-        # Target Actor: Get action logits and convert to probabilities
         next_action_logits = actor_target(next_state)
         next_action_probs = F.softmax(next_action_logits, dim=1)
         action_dist = torch.distributions.Categorical(next_action_probs)
         next_action_discrete = action_dist.sample()
 
-        # One-hot encode next actions
         next_action_one_hot = torch.zeros(batch_size, action_dim).to(device)
         next_action_one_hot.scatter_(1, next_action_discrete.unsqueeze(1), 1.0)
 
-        # Compute the target Q value
         target_Q1, target_Q2 = critic_target(next_state, next_action_one_hot)
         target_Q = torch.min(target_Q1, target_Q2)
         target_Q = reward + ((1 - done) * gamma * target_Q).detach()
 
-    # Get current Q estimates
     current_Q1, current_Q2 = critic(state, action)
-
-    # Compute critic loss
     critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
 
-    # Optimize the critic
     critic_optimizer.zero_grad()
     critic_loss.backward()
     critic_optimizer.step()
 
-    # Delayed policy updates
     global policy_iteration_step
     if policy_iteration_step % policy_delay == 0:
-        # Compute actor loss
         action_logits = actor(state)
         action_probs = F.softmax(action_logits, dim=1)
 
-        # Compute Q-values for all actions
         all_actions = torch.eye(action_dim).to(device)
         all_actions_expanded = all_actions.unsqueeze(0).expand(batch_size, -1, -1)
         state_expanded = state.unsqueeze(1).expand(-1, action_dim, -1)
         q_values = critic.Q1(state_expanded.reshape(-1, state_dim), all_actions_expanded.reshape(-1, action_dim))
         q_values = q_values.view(batch_size, action_dim)
 
-        # Compute expected Q-values under the current policy
         expected_Q = torch.sum(action_probs * q_values, dim=1, keepdim=True)
         actor_loss = -expected_Q.mean()
 
-        # Optimize the actor
         actor_optimizer.zero_grad()
         actor_loss.backward()
         actor_optimizer.step()
 
-        # Update the frozen target models
         for param, target_param in zip(critic.parameters(), critic_target.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
@@ -217,19 +204,19 @@ print("setting training environment : ")
 
 capacity = 1e6  # replay buffer size
 max_ep_len = 225  # max timesteps in one episode
-gamma = 0.99  # discount factor
-lr_actor = 0.0003  # learning rate for actor network
-lr_critic = 0.0003  # learning rate for critic network
+gamma = 0.95  # discount factor (adjusted)
+lr_actor = 0.0001  # learning rate for actor network (adjusted)
+lr_critic = 0.001  # learning rate for critic network (adjusted)
 random_seed = 0  # set random seed
 max_training_timesteps = 100000  # break from training loop if timeteps > max_training_timesteps
 print_freq = max_ep_len * 4  # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2  # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4  # save model frequency (in num timesteps)
-batch_size = 256
-tau = 0.005  # Target network update rate
+batch_size = 512  # increased batch size
+tau = 0.001  # Target network update rate (adjusted)
 policy_noise = 0.2  # Noise added to target policy during critic update
 noise_clip = 0.5  # Range to clip target policy noise
-policy_delay = 2  # Delayed policy updates parameter
+policy_delay = 4  # Delayed policy updates parameter (adjusted)
 exploration_noise = 0.1  # Exploration noise during training
 
 env = Env()
