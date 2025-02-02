@@ -19,13 +19,13 @@ print("=========================================================================
 # set device to cpu or cuda
 device = torch.device('cpu')
 
-if(torch.cuda.is_available()): 
-    device = torch.device('cuda:1') 
+if torch.cuda.is_available():
+    device = torch.device('cuda:1')
     torch.cuda.empty_cache()
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
     print("Device set to : cpu")
-    
+
 print("============================================================================================")
 
 NN_size = 256
@@ -69,8 +69,8 @@ class ReplayBuffer(object):
         return (np.array(state, dtype=np.float32),
                 np.array(action, dtype=np.float32),
                 np.array(next_state, dtype=np.float32),
-                np.array(reward, dtype=np.float32).reshape(-1,1),
-                np.array(done, dtype=np.float32).reshape(-1,1))
+                np.array(reward, dtype=np.float32).reshape(-1, 1),
+                np.array(done, dtype=np.float32).reshape(-1, 1))
 
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_size=NN_size):
@@ -123,6 +123,21 @@ class Critic(nn.Module):
         q1 = self.critic1(xu)
         return q1
 
+################################## Training Functions ##################################
+
+def select_action(state, exploration_noise=0.1):
+    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
+    logits = actor(state_tensor)
+    action_probs = F.softmax(logits, dim=1)
+
+    # Epsilon-greedy exploration
+    if random.random() < exploration_noise:
+        action_discrete = random.randint(0, action_dim - 1)
+    else:
+        action_dist = torch.distributions.Categorical(action_probs)
+        action_discrete = action_dist.sample().item()
+
+    return action_discrete
 
 def td3_update(batch_size):
     if len(replay_buffer.storage) < batch_size:
@@ -130,7 +145,7 @@ def td3_update(batch_size):
 
     state, action, next_state, reward, done = replay_buffer.sample(batch_size)
     state = torch.FloatTensor(state).to(device)
-    action = torch.FloatTensor(action).to(device)  # One-hot encoded
+    action = torch.FloatTensor(action).to(device)
     next_state = torch.FloatTensor(next_state).to(device)
     reward = torch.FloatTensor(reward).to(device)
     done = torch.FloatTensor(done).to(device)
@@ -138,9 +153,6 @@ def td3_update(batch_size):
     with torch.no_grad():
         # Target Actor: Get action logits and convert to probabilities
         next_action_logits = actor_target(next_state)
-        # noise = (torch.randn_like(next_action_logits) * policy_noise).clamp(-noise_clip, noise_clip)
-        next_action_logits = next_action_logits #+ noise
-
         next_action_probs = F.softmax(next_action_logits, dim=1)
         action_dist = torch.distributions.Categorical(next_action_probs)
         next_action_discrete = action_dist.sample()
@@ -169,28 +181,19 @@ def td3_update(batch_size):
     global policy_iteration_step
     if policy_iteration_step % policy_delay == 0:
         # Compute actor loss
-
-        # Get action logits and compute probabilities
         action_logits = actor(state)
         action_probs = F.softmax(action_logits, dim=1)
 
-        # Compute log probabilities
-        log_probs = torch.log(action_probs + 1e-10)  # Adding epsilon for numerical stability
-
-        entropy = -torch.sum(action_probs * log_probs, dim=1, keepdim=True)
-
+        # Compute Q-values for all actions
         all_actions = torch.eye(action_dim).to(device)
         all_actions_expanded = all_actions.unsqueeze(0).expand(batch_size, -1, -1)
-        
-        # Compute Q-values for all actions
-        state_expanded = state.unsqueeze(1).expand(-1, action_dim, -1)  # Shape: [batch_size, action_dim, state_dim]
+        state_expanded = state.unsqueeze(1).expand(-1, action_dim, -1)
         q_values = critic.Q1(state_expanded.reshape(-1, state_dim), all_actions_expanded.reshape(-1, action_dim))
         q_values = q_values.view(batch_size, action_dim)
 
-        expected_Q = torch.sum(action_probs * q_values, dim=1, keepdim=True)
-
         # Compute expected Q-values under the current policy
-        actor_loss = (-expected_Q + entropy_coefficient * entropy).mean()
+        expected_Q = torch.sum(action_probs * q_values, dim=1, keepdim=True)
+        actor_loss = -expected_Q.mean()
 
         # Optimize the actor
         actor_optimizer.zero_grad()
@@ -203,12 +206,8 @@ def td3_update(batch_size):
 
         for param, target_param in zip(actor.parameters(), actor_target.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
     policy_iteration_step += 1
-
-################################# End of Part I ################################
-
-print("============================================================================================")
-
 
 ################################### Training TD3 ###################################
 
@@ -216,23 +215,22 @@ print("=========================================================================
 
 print("setting training environment : ")
 
-capacity = 1e6              # replay buffer size
-max_ep_len = 225            # max timesteps in one episode
-gamma = 0.99                # discount factor
-lr_actor = 0.0003           # learning rate for actor network
-lr_critic = 0.0003          # learning rate for critic network
-random_seed = 0             # set random seed
-max_training_timesteps = 100000   # break from training loop if timeteps > max_training_timesteps
-print_freq = max_ep_len * 4     # print avg reward in the interval (in num timesteps)
-log_freq = max_ep_len * 2       # saving avg reward in the interval (in num timesteps)
-save_model_freq = max_ep_len * 4         # save model frequency (in num timesteps)
+capacity = 1e6  # replay buffer size
+max_ep_len = 225  # max timesteps in one episode
+gamma = 0.99  # discount factor
+lr_actor = 0.0003  # learning rate for actor network
+lr_critic = 0.0003  # learning rate for critic network
+random_seed = 0  # set random seed
+max_training_timesteps = 100000  # break from training loop if timeteps > max_training_timesteps
+print_freq = max_ep_len * 4  # print avg reward in the interval (in num timesteps)
+log_freq = max_ep_len * 2  # saving avg reward in the interval (in num timesteps)
+save_model_freq = max_ep_len * 4  # save model frequency (in num timesteps)
 batch_size = 256
-tau = 0.005              # Target network update rate
-policy_noise = 0.2       # Noise added to target policy during critic update
-noise_clip = 0.5         # Range to clip target policy noise
-policy_delay = 2         # Delayed policy updates parameter
+tau = 0.005  # Target network update rate
+policy_noise = 0.2  # Noise added to target policy during critic update
+noise_clip = 0.5  # Range to clip target policy noise
+policy_delay = 2  # Delayed policy updates parameter
 exploration_noise = 0.1  # Exploration noise during training
-entropy_coefficient = 0.1 # Entropy coefficient for TD3
 
 env = Env()
 
@@ -250,43 +248,44 @@ action_dim = args.n_servers
 
 log_dir = "TD3_files"
 if not os.path.exists(log_dir):
-      os.makedirs(log_dir)
+    os.makedirs(log_dir)
 
 log_dir_1 = log_dir + '/' + 'resource_allocation' + '/' + 'stability' + '/'
 if not os.path.exists(log_dir_1):
-      os.makedirs(log_dir_1)
+    os.makedirs(log_dir_1)
+
+log_dir_2 = log_dir + '/' + 'resource_allocation' + '/' + 'reward' + '/'
+if not os.path.exists(log_dir_2):
+    os.makedirs(log_dir_2)
 
 #### get number of saving files in directory
 run_num = 0
 current_num_files1 = next(os.walk(log_dir_1))[2]
 run_num1 = len(current_num_files1)
+current_num_files2 = next(os.walk(log_dir_2))[2]
+run_num2 = len(current_num_files2)
 
-
-#### create new saving file for each run 
+#### create new saving file for each run
 log_f_name = log_dir_1 + '/TD3_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num1) + ".csv"
+log_f_name2 = log_dir_2 + '/TD3_' + str(NN_size) + '_resource_allocation' + "_log_" + str(run_num2) + ".csv"
 
 print("current logging run number for " + 'resource_allocation' + " : ", run_num1)
 print("logging at : " + log_f_name)
 
-#####################################################
-
 ################### checkpointing ###################
 
-run_num_pretrained = 0      #### change this to prevent overwriting weights in same env_name folder
+run_num_pretrained = 0  #### change this to prevent overwriting weights in same env_name folder
 
 directory = "TD3_preTrained"
 if not os.path.exists(directory):
-      os.makedirs(directory)
+    os.makedirs(directory)
 
-directory = directory + '/' + 'resource_allocation' + '/' 
+directory = directory + '/' + 'resource_allocation' + '/'
 if not os.path.exists(directory):
-      os.makedirs(directory)
-
+    os.makedirs(directory)
 
 checkpoint_path = directory + "TD3{}_{}_{}_{}.pth".format(NN_size, 'resource_allocation', random_seed, run_num_pretrained)
 print("save checkpoint path : " + checkpoint_path)
-
-#####################################################
 
 ############# print all hyperparameters #############
 
@@ -305,7 +304,7 @@ print("state space dimension : ", state_dim)
 print("action space dimension : ", action_dim)
 
 print("--------------------------------------------------------------------------------------------")
- 
+
 print("discount factor (gamma) : ", gamma)
 
 print("--------------------------------------------------------------------------------------------")
@@ -322,7 +321,7 @@ random.seed(random_seed)
 #####################################################
 
 print("============================================================================================")
-    
+
 ################# training procedure ################
 
 # Initialize policy and value networks
@@ -346,8 +345,10 @@ print("Started training at (GMT) : ", start_time)
 print("============================================================================================")
 
 # logging file
-log_f = open(log_f_name,"w+")
+log_f = open(log_f_name, "w+")
 log_f.write('episode,timestep,reward\n')
+log_f2 = open(log_f_name2, "w+")
+log_f2.write('episode,timestep,reward\n')
 
 # printing and logging variables
 print_running_reward = 0
@@ -366,23 +367,14 @@ while time_step <= max_training_timesteps:
     state = env.reset()
     current_ep_reward = 0
 
-    for t in range(1, max_ep_len+1):
-        # select action with policy
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
-        logits = actor(state_tensor)  # Get action logits from Actor
-        noise = torch.normal(mean=0.0, std=exploration_noise, size=logits.size()).to(device)
-        noisy_logits = logits + noise
-        action_probs = F.softmax(noisy_logits, dim=1)  # Convert logits to probabilities
-
-        # Sample action index from the probability distribution
-        action_dist = torch.distributions.Categorical(action_probs)
-        action_discrete = action_dist.sample().item()
-
-        # Take the action in the environment
+    for t in range(1, max_ep_len + 1):
+        # Select action with exploration
+        action_discrete = select_action(state, exploration_noise)
         next_state, reward, done, info = env.step(action_discrete)
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
         time_step += 1
+
         # One-hot encode the discrete action for the Critic
         action_one_hot = np.zeros(action_dim, dtype=np.float32)
         action_one_hot[action_discrete] = 1.0
@@ -393,22 +385,22 @@ while time_step <= max_training_timesteps:
         # TD3 update
         td3_update(batch_size)
 
-        # log in logging file
+        # Logging and saving logic (unchanged)
         if time_step % log_freq == 0:
-
             # log average reward till last episode
             log_avg_reward = log_running_reward / log_running_episodes if log_running_episodes > 0 else 0
             log_avg_reward = round(log_avg_reward, 4)
 
             log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
             log_f.flush()
+            log_f2.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
+            log_f2.flush()
             print("Saving reward to csv file")
             log_running_reward = 0
             log_running_episodes = 0
 
         # printing average reward
         if time_step % print_freq == 0:
-
             # print average reward till last episode
             print_avg_reward = print_running_reward / print_running_episodes if print_running_episodes > 0 else 0
             print_avg_reward = round(print_avg_reward, 2)
@@ -426,16 +418,17 @@ while time_step <= max_training_timesteps:
                 'critic_state_dict': critic.state_dict(),
                 'actor_optimizer_state_dict': actor_optimizer.state_dict(),
                 'critic_optimizer_state_dict': critic_optimizer.state_dict(),
-                }, checkpoint_path)
+            }, checkpoint_path)
             print("model saved")
             print("--------------------------------------------------------------------------------------------")
+
         state = next_state
 
         if done:
             break
 
-    print_running_reward += reward
-    log_running_reward += reward
+    print_running_reward += current_ep_reward
+    log_running_reward += current_ep_reward
 
     print_running_episodes += 1
     log_running_episodes += 1
@@ -443,6 +436,7 @@ while time_step <= max_training_timesteps:
     i_episode += 1
 
 log_f.close()
+log_f2.close()
 
 ################################ End of Part II ################################
 
