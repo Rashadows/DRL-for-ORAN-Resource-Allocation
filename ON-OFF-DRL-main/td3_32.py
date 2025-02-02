@@ -31,7 +31,6 @@ print("=========================================================================
 NN_size = 32  # You can change this to 32, 64, or 256 as needed
 
 ################################## Define TD3 Networks ##################################
-
 class ReplayBuffer(object):
     def __init__(self, max_size):
         self.storage = []
@@ -39,7 +38,6 @@ class ReplayBuffer(object):
         self.ptr = 0
 
     def push(self, data):
-        # data is a tuple (state, action_one_hot, next_state, reward, done)
         if len(self.storage) == self.max_size:
             self.storage[int(self.ptr)] = data
             self.ptr = (self.ptr + 1) % self.max_size
@@ -72,17 +70,15 @@ class Actor(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, action_dim)  # Outputs logits for each action
+            nn.Linear(hidden_size, action_dim)
         )
 
     def forward(self, x):
-        logits = self.actor(x)
-        return logits  # Removed Tanh
+        return self.actor(x)
 
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_size=NN_size):
         super(Critic, self).__init__()
-
         # Q1 architecture
         self.critic1 = nn.Sequential(
             nn.Linear(state_dim + action_dim, hidden_size),
@@ -91,7 +87,6 @@ class Critic(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, 1)
         )
-
         # Q2 architecture
         self.critic2 = nn.Sequential(
             nn.Linear(state_dim + action_dim, hidden_size),
@@ -103,35 +98,32 @@ class Critic(nn.Module):
 
     def forward(self, x, u):
         xu = torch.cat([x, u], 1)
-        q1 = self.critic1(xu)
-        q2 = self.critic2(xu)
-        return q1, q2
+        return self.critic1(xu), self.critic2(xu)
 
     def Q1(self, x, u):
         xu = torch.cat([x, u], 1)
-        q1 = self.critic1(xu)
-        return q1
+        return self.critic1(xu)
 
 ################################## Training Functions ##################################
 
-def select_action(state, exploration_noise=0.1):
+def select_action(state, exploration_noise=0.5, temperature=1.0):
     state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
     logits = actor(state_tensor)
     
-    # Add Gaussian noise to logits for exploration
+    # Enhanced exploration with higher noise
     noise = torch.randn_like(logits) * exploration_noise
     noisy_logits = logits + noise
     
-    action_probs = F.softmax(noisy_logits, dim=1)
+    # Temperature-controlled action selection
+    action_probs = F.softmax(noisy_logits / temperature, dim=1)
     action_dist = torch.distributions.Categorical(action_probs)
-    action_discrete = action_dist.sample().item()
-    
-    return action_discrete
+    return action_dist.sample().item()
 
 def td3_update(batch_size):
     if len(replay_buffer.storage) < batch_size:
         return
 
+    # Sample from replay buffer
     state, action, next_state, reward, done = replay_buffer.sample(batch_size)
     state = torch.FloatTensor(state).to(device)
     action = torch.FloatTensor(action).to(device)
@@ -140,46 +132,59 @@ def td3_update(batch_size):
     done = torch.FloatTensor(done).to(device)
 
     with torch.no_grad():
+        # Target policy smoothing with noise
         next_action_logits = actor_target(next_state)
-        next_action_probs = F.softmax(next_action_logits, dim=1)
+        noise = torch.randn_like(next_action_logits) * policy_noise
+        noise = torch.clamp(noise, -noise_clip, noise_clip)
+        noisy_next_action_logits = next_action_logits + noise
+        
+        next_action_probs = F.softmax(noisy_next_action_logits, dim=1)
         action_dist = torch.distributions.Categorical(next_action_probs)
         next_action_discrete = action_dist.sample()
 
+        # One-hot encoding for critic
         next_action_one_hot = torch.zeros(batch_size, action_dim).to(device)
         next_action_one_hot.scatter_(1, next_action_discrete.unsqueeze(1), 1.0)
 
+        # Calculate target Q-values
         target_Q1, target_Q2 = critic_target(next_state, next_action_one_hot)
         target_Q = torch.min(target_Q1, target_Q2)
         target_Q = reward + ((1 - done) * gamma * target_Q).detach()
 
+    # Critic update
     current_Q1, current_Q2 = critic(state, action)
     critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
-
     critic_optimizer.zero_grad()
     critic_loss.backward()
     critic_optimizer.step()
 
+    # Delayed policy updates with entropy regularization
     global policy_iteration_step
     if policy_iteration_step % policy_delay == 0:
         action_logits = actor(state)
         action_probs = F.softmax(action_logits, dim=1)
-
+        
+        # Calculate policy entropy
+        entropy = -torch.sum(action_probs * torch.log(action_probs + 1e-10), dim=1, keepdim=True)
+        
+        # Calculate expected Q-values
         all_actions = torch.eye(action_dim).to(device)
-        all_actions_expanded = all_actions.unsqueeze(0).expand(batch_size, -1, -1)
         state_expanded = state.unsqueeze(1).expand(-1, action_dim, -1)
-        q_values = critic.Q1(state_expanded.reshape(-1, state_dim), all_actions_expanded.reshape(-1, action_dim))
+        q_values = critic.Q1(state_expanded.reshape(-1, state_dim), 
+                           all_actions.unsqueeze(0).expand(batch_size, -1, -1).reshape(-1, action_dim))
         q_values = q_values.view(batch_size, action_dim)
-
+        
+        # Entropy-regularized actor loss
         expected_Q = torch.sum(action_probs * q_values, dim=1, keepdim=True)
-        actor_loss = -expected_Q.mean()
-
+        actor_loss = -expected_Q.mean() - 0.1 * entropy.mean()
+        
         actor_optimizer.zero_grad()
         actor_loss.backward()
         actor_optimizer.step()
 
+        # Update target networks
         for param, target_param in zip(critic.parameters(), critic_target.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
         for param, target_param in zip(actor.parameters(), actor_target.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
@@ -191,22 +196,25 @@ def td3_update(batch_size):
 
 print("setting training environment : ")
 
-capacity = 1e6  # replay buffer size
-max_ep_len = 225  # max timesteps in one episode
-gamma = 0.95  # discount factor (adjusted)
-lr_actor = 0.0001  # learning rate for actor network (adjusted)
-lr_critic = 0.001  # learning rate for critic network (adjusted)
-random_seed = 0  # set random seed
-max_training_timesteps = 100000  # break from training loop if timeteps > max_training_timesteps
+# Hyperparameters (Modified for increased variability)
+capacity = 1e6
+max_ep_len = 225
+gamma = 0.95
+lr_actor = 0.0001
+lr_critic = 0.001
+random_seed = 0
+max_training_timesteps = 100000
+tau = 0.01              # Increased target network update rate
+policy_delay = 2        # More frequent policy updates
+policy_noise = 0.4      # Increased target noise
+noise_clip = 0.7        # Wider noise clipping
+exploration_noise = 0.5 # Higher exploration noise
+batch_size = 512  # increased batch size
+policy_delay = 4  # Delayed policy updates parameter (adjusted)
+
 print_freq = max_ep_len * 4  # print avg reward in the interval (in num timesteps)
 log_freq = max_ep_len * 2  # saving avg reward in the interval (in num timesteps)
 save_model_freq = max_ep_len * 4  # save model frequency (in num timesteps)
-batch_size = 512  # increased batch size
-tau = 0.001  # Target network update rate (adjusted)
-policy_noise = 0.2  # Noise added to target policy during critic update
-noise_clip = 0.5  # Range to clip target policy noise
-policy_delay = 4  # Delayed policy updates parameter (adjusted)
-exploration_noise = 0.1  # Exploration noise during training
 
 env = Env()
 
@@ -300,11 +308,11 @@ print("=========================================================================
 
 ################# training procedure ################
 
-# Initialize policy and value networks
+
+# Initialize networks
 actor = Actor(state_dim, action_dim).to(device)
 actor_target = Actor(state_dim, action_dim).to(device)
 actor_target.load_state_dict(actor.state_dict())
-
 critic = Critic(state_dim, action_dim).to(device)
 critic_target = Critic(state_dim, action_dim).to(device)
 critic_target.load_state_dict(critic.state_dict())
@@ -314,6 +322,10 @@ actor_optimizer = optim.Adam(actor.parameters(), lr=lr_actor)
 critic_optimizer = optim.Adam(critic.parameters(), lr=lr_critic)
 
 replay_buffer = ReplayBuffer(capacity)
+
+cycle_length = max_training_timesteps//4  # 4 full cycles over 100k steps
+
+policy_iteration_step = 0
 
 start_time = datetime.now().replace(microsecond=0)
 print("Started training at (GMT) : ", start_time)
@@ -341,11 +353,12 @@ policy_iteration_step = 0
 while time_step <= max_training_timesteps:
     print("New training episode:")
     state = env.reset()
-    current_ep_reward = 0
+    current_ep_reward = 0   
 
     for t in range(1, max_ep_len + 1):
         # Select action with exploration
-        action_discrete = select_action(state, exploration_noise)
+        current_temperature = 1.0 + 0.5 * np.sin(2 * np.pi * time_step / cycle_length)
+        action_discrete = select_action(state, exploration_noise, current_temperature)
         next_state, reward, done, info = env.step(action_discrete)
         current_ep_reward += reward
         print("The current total episodic reward at timestep:", time_step, "is:", current_ep_reward)
@@ -354,8 +367,6 @@ while time_step <= max_training_timesteps:
         # One-hot encode the discrete action for the Critic
         action_one_hot = np.zeros(action_dim, dtype=np.float32)
         action_one_hot[action_discrete] = 1.0
-
-        # Store data in replay buffer
         replay_buffer.push((state, action_one_hot, next_state, reward, float(done)))
 
         # TD3 update
