@@ -132,12 +132,6 @@ class DoubleDQNAgent:
 # TD3 Agent
 #####################################################
 
-def weights_init(m):
-    if isinstance(m, nn.Linear):
-        nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
-        if m.bias is not None:
-            nn.init.zeros_(m.bias)
-
 class TD3Actor(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_size=64):
         super(TD3Actor, self).__init__()
@@ -148,7 +142,6 @@ class TD3Actor(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, action_dim)
         )
-        self.apply(weights_init)
 
     def forward(self, x):
         logits = self.actor(x)

@@ -165,10 +165,10 @@ class Env():
 
         # Now that we've processed tasks, cur_task.start_time should be set
         if cur_task.start_time is not None:
-            current_latency = cur_task.start_time - cur_task.arrive_time
+            current_latency = max(0, cur_task.start_time - cur_task.arrive_time)
         else:
             # Task hasn't started yet; latency is the time until now
-            current_latency = self.cur_time - cur_task.arrive_time
+            current_latency = max(0, self.cur_time - cur_task.arrive_time)
 
         self.latency.append(current_latency)
 
@@ -211,57 +211,17 @@ class Env():
         # Return the normalized reward
         return normalized_reward
     
-    # def get_reward(self, nxt_task):
-    #     """
-    #     Calculate the reward based on power usage, latency, task completion, 
-    #     and penalties for exceeding CPU/memory constraints.
-    #     """
-    #     penalty_factor_base = 0.15
-    #     task_completion_reward = 10  # Reward for completing a task successfully
-    #     unfinished_task_penalty = -5  # Penalty for tasks left incomplete
-    #     reward = -self.w1 * self.calc_total_power() - self.w2 * self.calc_total_latency()
-
-    #     # Check if the task's CPU and memory utilization exceeds the critical threshold
-    #     critical_threshold = 0.9
-    #     task_row = None
-    #     if 'task_name' in self.batch_instance.columns and hasattr(nxt_task, 'name'):
-    #         # Select the row using task_name if available
-    #         task_row = self.batch_instance.loc[self.batch_instance['task_name'] == nxt_task.name]
-    #     elif isinstance(nxt_task, int) and 0 <= nxt_task < len(self.batch_instance):
-    #         # Fallback to index-based access if task_name is unavailable
-    #         task_row = self.batch_instance.iloc[[nxt_task]]
-
-    #     if task_row is not None and not task_row.empty:
-    #         cpu_avg = task_row['cpu_avg'].iloc[0]
-    #         mem_avg = task_row['mem_avg'].iloc[0]
-
-    #         if cpu_avg > critical_threshold or mem_avg > critical_threshold:
-    #             penalty_factor = penalty_factor_base * max(cpu_avg - critical_threshold, mem_avg - critical_threshold)
-    #             reward -= self.w3 * penalty_factor  # Apply scaled penalty
-
-    #     # Reward for task completion
-    #     if hasattr(nxt_task, 'start_time') and hasattr(nxt_task, 'end_time'):
-    #         if nxt_task.end_time <= self.cur_time:
-    #             reward += task_completion_reward
-    #         else:
-    #             reward += unfinished_task_penalty
-
-    #     return reward
        
     def calc_total_power(self):
         total_power = 0
         for m in self.machines:
-            cpu = m.cpu()
-            power_m = self.P_0 + (self.P_100 - self.P_0) * cpu
-            total_power += power_m
+            cpu_util = 1 - (m.cpu_idle / 100)  # Use 0-1 scale
+            power_kW = self.P_0 + (self.P_100 - self.P_0) * cpu_util  # Already in kW
+            total_power += power_kW
         return total_power
     
     def calc_total_latency(self):
-        latency_list = [t.start_time - t.arrive_time for t in self.tasks]
-        cumulative_latency = np.cumsum(latency_list)
-        total_latency = cumulative_latency[-1]
-        return total_latency
-    
+        return np.sum(self.latency)  # Use pre-clamped values
     
     def sample_action(self):
         rand_machine = random.randint(0, self.n_machines-1)
@@ -387,6 +347,10 @@ class Machine():
         if self.cur_time == 0:  # First time, no task has come before
             self.cur_time = cur_time
             return
+        # Advance the machine's internal clock to cur_time
+        if self.cur_time < cur_time:
+            self.cur_time = cur_time
+
         if self.awake_time > cur_time:  # Will not be awakened at cur_time
             self.cur_time = cur_time
             return
@@ -397,7 +361,6 @@ class Machine():
         while self.process_pending_queue() or self.process_running_queue(cur_time):
             pass
         self.power_usage += self.calc_power(cur_time)
-        self.cur_time = cur_time
 
     def enough_resource(self, task):
         return task.plan_cpu <= self.cpu_idle and task.plan_mem <= self.mem_empty
@@ -409,7 +372,7 @@ class Machine():
         if self.state == 'sleeping':
             return 0
         else:
-            time_elapsed_hours = (cur_time - self.cur_time) / 3600
+            time_elapsed_hours = (cur_time - self.cur_time) / 3600  # Convert seconds to hours
             cpu_util = 1 - (self.cpu_idle / 100)  # Use 0-1 scale
             power_kW = self.P_0 + (self.P_100 - self.P_0) * cpu_util  # Linear model
             return power_kW * time_elapsed_hours  # kWh
