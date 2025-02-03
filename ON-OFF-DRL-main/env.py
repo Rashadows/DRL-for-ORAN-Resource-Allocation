@@ -100,7 +100,7 @@ class Env():
             'start_time',  # start time of the task
             'end_time',  # end of time the task
             'machine_id',  # uid of host machine of the instance
-            'seq_no'  # sequence number of this instance
+            'seq_no',  # sequence number of this instance
             'total_seq_no',  # total sequence number of this instance
             'cpu_avg',  # average cpu used by the instance, 100 is 1 core
             'cpu_max',  # max cpu used by the instance, 100 is 1 core
@@ -168,6 +168,7 @@ class Env():
             current_latency = max(0, cur_task.start_time - cur_task.arrive_time)
         else:
             # Task hasn't started yet; latency is the time until now
+            cur_task.start_time = self.cur_time
             current_latency = max(0, self.cur_time - cur_task.arrive_time)
 
         self.latency.append(current_latency)
@@ -215,7 +216,7 @@ class Env():
     def calc_total_power(self):
         total_power = 0
         for m in self.machines:
-            cpu_util = 1 - (m.cpu_idle / 100)  # Use 0-1 scale
+            cpu_util = 1 - (m.cpu_idle / m.cpu_num)
             power_kW = self.P_0 + (self.P_100 - self.P_0) * cpu_util  # Already in kW
             total_power += power_kW
         return total_power

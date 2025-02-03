@@ -66,9 +66,6 @@ sympy==1.12.1
 tbb==2021.12.0
 tensorboard==2.17.1
 tensorboard-data-server==0.7.2
-tensorflow==2.17.0
-tensorflow-intel==2.17.0
-tensorflow-io-gcs-filesystem==0.31.0
 termcolor==2.5.0
 torch==2.3.1
 tqdm==4.66.4
